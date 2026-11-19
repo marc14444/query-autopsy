@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL queries inside VS Code. Inspect EXPLAIN (ANALYZE, BUFFERS) execution plans, catch Seq Scans, buffer bottlenecks, and row misestimates.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "query-autopsy",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -60,7 +60,12 @@
       },
       {
         "command": "queryAutopsy.configureConnection",
-        "title": "Configure PostgreSQL Connection",
+        "title": "Switch / Configure PostgreSQL Profile",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.discoverConnections",
+        "title": "Auto-Detect Local PostgreSQL (.env / Docker)",
         "category": "QueryAutopsy"
       },
       {

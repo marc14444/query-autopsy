@@ -100,6 +100,12 @@ body {
   color: var(--qa-muted);
 }
 
+.pill-warn {
+  background: color-mix(in srgb, var(--qa-warning) 20%, transparent);
+  color: var(--qa-warning);
+  border-color: color-mix(in srgb, var(--qa-warning) 55%, transparent);
+}
+
 .pill-parallel {
   background: color-mix(in srgb, var(--qa-focus) 20%, transparent);
   color: var(--qa-fg);

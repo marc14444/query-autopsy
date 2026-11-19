@@ -90,7 +90,8 @@ flowchart LR
 
 ### 2.3 `src/infrastructure/` (Driven Adapters)
 - `postgres/pgQueryExecutor.ts`: Caches a bounded `pg.Pool` (max 4 connections), executes `EXPLAIN` inside `BEGIN READ ONLY` / `BEGIN` + `SET LOCAL statement_timeout` + guaranteed `ROLLBACK` in `finally`. Maps SQLSTATE codes via `pgErrors.ts`.
-- `vscode/vscodeConnectionStore.ts`: Reads/writes connection URI in `vscode.SecretStorage`; reads non-sensitive settings (`statementTimeoutMs`, `allowWriteAnalyze`, `seqScanRowThreshold`, `showRawJson`, `fallbackConnectionString`) from `vscode.workspace.getConfiguration('queryAutopsy')`.
+- `vscode/vscodeConnectionStore.ts`: Stores multi-profile URIs encrypted in `vscode.SecretStorage` and non-sensitive profile metadata (`ConnectionProfile`) in `globalState` (with automatic migration from v0.1.0 single-URI secrets); reads settings from `vscode.workspace.getConfiguration('queryAutopsy')`.
+- `vscode/workspaceEnvDiscovery.ts`: Scans workspace `.env*` and `*compose*.yml` files and delegates parsing to pure domain `envDiscovery.ts`.
 - `vscode/outputChannelPresenter.ts`: Formats `InspectionReport` cleanly for the Output panel (Milestone 1).
 - `vscode/webview/webviewReportPresenter.ts`: Renders the interactive Webview execution tree, KPI strip, diagnostics, and node inspector with strict CSP (`webviewHtml.ts`) and typed bridge messages (`contracts.ts`).
 - `vscode/compositeReportPresenter.ts`: Fans out `InspectionReport` to both `WebviewReportPresenter` and `OutputChannelReportPresenter`.

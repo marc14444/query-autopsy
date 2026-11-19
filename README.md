@@ -25,7 +25,9 @@
 Most SQL bottlenecks don't fail in unit tests — they quietly scan 500,000 rows in production. **QueryAutopsy** brings PostgreSQL execution plan forensics directly into VS Code with strict safety guardrails:
 
 - **Zero-Surprise Safety**: `READ` queries executed under `EXPLAIN ANALYZE` run inside `BEGIN READ ONLY` + `SET LOCAL statement_timeout` + unconditional `ROLLBACK`. Write statements (`INSERT`/`UPDATE`/`DELETE`/`MERGE` and writable CTEs) are blocked from `ANALYZE` by default (and rolled back if explicitly enabled). DDL and multi-statement strings are always rejected.
-- **SecretStorage Credentials**: Connection URIs and passwords are encrypted in VS Code `SecretStorage` — never stored in plain `.vscode/settings.json` or logged.
+- **Multi-Profile & Read-Only Prod Lock**: Switch between `local`, `staging`, and `production` profiles from the status bar. Locked profiles block `WRITE` `EXPLAIN ANALYZE` and disable direct index creation.
+- **Zero-Config `.env` & Docker Discovery**: Auto-detects `DATABASE_URL` / `POSTGRES_URL` in `.env` files and Postgres services in `docker-compose.yml` for instant onboarding (`QueryAutopsy: Auto-Detect Local PostgreSQL`).
+- **SecretStorage Credentials**: Connection URIs and passwords are encrypted per profile in VS Code `SecretStorage` — never stored in plain `.vscode/settings.json` or logged.
 - **Interactive Execution Plan Webview**: Color-coded execution tree (`HOT` / `WARN` / `OK`), `PARALLEL` worker awareness, KPI cards, buffer cache hit metrics, node inspector drawer, and strict nonce-based CSP.
 - **CodeLens & Inline Editor Diagnostics**: Surfaces `▶ Inspect Plan (ANALYZE)` and `◈ Estimate Plan` directly above queries in `.sql` files and TypeScript/JavaScript SQL templates (`sql\`...\``, `Prisma.sql\`...\``, `/* sql */ \`...\``, `.query(\`...\`)`). Highlights bottlenecks in the editor with a one-click QuickFix 💡 to copy `CREATE INDEX CONCURRENTLY`.
 - **Parameterized Query Support**: Detects `$1, $2...` placeholders (and converts `${expr}` interpolations in JS/TS SQL templates) and executes safely via the PostgreSQL Extended Query Protocol.
@@ -67,7 +69,7 @@ src/
 
 3. **Launch the Extension Development Host** in VS Code:
    - Press `F5` (`Fn + F5` on macOS, or **Run and Debug → `Run QueryAutopsy Extension`**).
-   - Run Command Palette → **`QueryAutopsy: Configure PostgreSQL Connection`** and enter:
+   - Click **`QueryAutopsy: Connect PG`** in the status bar (or run Command Palette → **`QueryAutopsy: Switch / Configure PostgreSQL Profile`**) and choose **Auto-detect from workspace** (detects `docker/docker-compose.yml` automatically!) or paste:
      ```text
      postgresql://postgres:queryautopsy@localhost:5432/query_autopsy_dev
      ```
@@ -91,6 +93,7 @@ npm run package:vsix  # Build production VSIX installer
 
 - **[AGENTS.md](./AGENTS.md)** — Architectural boundaries, safety invariants, and contributor/agent rules
 - **[PRD-001](./docs/prd/PRD-001-query-autopsy-mvp.md)** — Product Requirements across Milestones 1–3
+- **[Master Roadmap (v0.2 → v1.0)](./docs/roadmap/ROADMAP-V0.2-TO-V1.0.md)** — Multi-IDE release, advanced PostgreSQL diagnostics, and multi-engine plan
 - **[Hexagonal Architecture](./docs/architecture/HEXAGONAL-ARCHITECTURE.md)** — Ports & Adapters blueprint
 - **[ADRs](./docs/adr/README.md)** — Architecture Decision Records (`0001`–`0005`)
 - **[Technical Specifications](./docs/specs/TECH-SPEC-01-sql-classifier-and-pg-executor.md)** — Classifier, Executor, Parser, Diagnostics, and Webview/CodeLens specs

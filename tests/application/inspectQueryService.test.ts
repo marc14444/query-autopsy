@@ -5,6 +5,7 @@ import {
   MissingParametersError,
   UnsafeQueryError,
 } from '../../src/domain/errors/domainErrors.js';
+import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
 import type { InspectionReport } from '../../src/domain/models/diagnostic.js';
 import type {
   ConnectionConfigPort,
@@ -16,6 +17,7 @@ import type { ReportPresenterPort } from '../../src/domain/ports/outbound/report
 
 function createMocks(options?: {
   connectionString?: string | undefined;
+  activeProfile?: ConnectionProfile | undefined;
   settings?: Partial<RuntimeSettings>;
 }) {
   const defaultSettings: RuntimeSettings = {
@@ -36,6 +38,14 @@ function createMocks(options?: {
       ),
     saveConnectionString: vi.fn().mockResolvedValue(undefined),
     clearConnectionString: vi.fn().mockResolvedValue(undefined),
+    getActiveProfile: vi.fn().mockResolvedValue(options?.activeProfile),
+    listProfiles: vi
+      .fn()
+      .mockResolvedValue(options?.activeProfile ? [options.activeProfile] : []),
+    saveProfile: vi.fn(),
+    setActiveProfile: vi.fn().mockResolvedValue(undefined),
+    setProfileReadOnlyLock: vi.fn().mockResolvedValue(undefined),
+    deleteProfile: vi.fn().mockResolvedValue(undefined),
     getRuntimeSettings: vi.fn().mockReturnValue(defaultSettings),
   };
 
@@ -152,5 +162,26 @@ describe('InspectQueryService (Application Use Case)', () => {
     await expect(
       service.execute({ rawSql: 'SELECT 1', mode: 'analyze' }),
     ).rejects.toThrow(MissingConnectionError);
+  });
+
+  it('blocks WRITE EXPLAIN ANALYZE on readOnlyLocked profiles even when allowWriteAnalyze is true', async () => {
+    const { service, queryExecutor } = createMocks({
+      settings: { allowWriteAnalyze: true },
+      activeProfile: {
+        id: 'prod-ro',
+        name: 'prod-replica',
+        environment: 'production',
+        readOnlyLocked: true,
+        displayTarget: 'prod.db:5432/app',
+      },
+    });
+
+    await expect(
+      service.execute({
+        rawSql: "DELETE FROM orders WHERE status = 'failed'",
+        mode: 'analyze',
+      }),
+    ).rejects.toThrow(/Read-Only locked/);
+    expect(queryExecutor.executeExplain).not.toHaveBeenCalled();
   });
 });

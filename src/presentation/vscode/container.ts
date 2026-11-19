@@ -11,12 +11,14 @@ import {
   type RerunQueryHandler,
   WebviewReportPresenter,
 } from '../../infrastructure/vscode/webview/webviewReportPresenter.js';
+import { discoverWorkspacePostgresConnections } from '../../infrastructure/vscode/workspaceEnvDiscovery.js';
 import {
   type CodeLensInspectArgs,
   INSPECT_CODELENS_COMMAND,
   SqlCodeLensProvider,
 } from './codelens/sqlCodeLensProvider.js';
 import {
+  runAutoDetectConnectionCommand,
   runClearConnectionCommand,
   runConfigureConnectionCommand,
 } from './commands/configureConnectionCommand.js';
@@ -32,6 +34,7 @@ import {
   COPY_SUGGESTED_INDEX_COMMAND,
   EditorDiagnosticsManager,
 } from './diagnostics/editorDiagnosticsManager.js';
+import { ConnectionStatusBar } from './statusbar/connectionStatusBar.js';
 
 export interface ExtensionContainer {
   dispose(): Promise<void>;
@@ -59,13 +62,34 @@ export function createExtensionContainer(
   const logChannel = vscode.window.createOutputChannel('QueryAutopsy Logs');
 
   const logger = new OutputChannelLogger(logChannel);
-  const connectionConfig = new VsCodeConnectionStore(context.secrets);
+  const connectionConfig = new VsCodeConnectionStore(
+    context.secrets,
+    context.globalState,
+  );
   const queryExecutor = new PgQueryExecutor(logger);
-  const diagnosticsManager = new EditorDiagnosticsManager();
+  const statusBar = new ConnectionStatusBar(connectionConfig);
+
+  let activeProfileReadOnly = false;
+  const syncProfileUiState = async (): Promise<void> => {
+    const active = await connectionConfig.getActiveProfile();
+    activeProfileReadOnly = active?.readOnlyLocked ?? false;
+    await statusBar.refresh();
+  };
+
+  void syncProfileUiState();
+
+  const diagnosticsManager = new EditorDiagnosticsManager(
+    () => activeProfileReadOnly,
+  );
   const codeLensProvider = new SqlCodeLensProvider();
 
   const configureHandler = () =>
-    runConfigureConnectionCommand(connectionConfig, queryExecutor, logger);
+    runConfigureConnectionCommand(
+      connectionConfig,
+      queryExecutor,
+      discoverWorkspacePostgresConnections,
+      logger,
+    );
 
   let lastInspectionTarget: InspectionTarget | undefined;
   const handleReportProduced = (
@@ -127,8 +151,18 @@ export function createExtensionContainer(
   context.subscriptions.push(
     reportChannel,
     logChannel,
+    connectionConfig,
+    statusBar,
     diagnosticsManager,
     codeLensProvider,
+    connectionConfig.onDidChangeProfile(() => {
+      void syncProfileUiState();
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('queryAutopsy.postgres')) {
+        void syncProfileUiState();
+      }
+    }),
     vscode.languages.registerCodeLensProvider(
       SUPPORTED_DOCUMENT_SELECTORS,
       codeLensProvider,
@@ -241,6 +275,14 @@ export function createExtensionContainer(
     vscode.commands.registerCommand(
       'queryAutopsy.configureConnection',
       configureHandler,
+    ),
+    vscode.commands.registerCommand('queryAutopsy.discoverConnections', () =>
+      runAutoDetectConnectionCommand(
+        connectionConfig,
+        queryExecutor,
+        discoverWorkspacePostgresConnections,
+        logger,
+      ),
     ),
     vscode.commands.registerCommand('queryAutopsy.clearConnection', () =>
       runClearConnectionCommand(connectionConfig, logger),

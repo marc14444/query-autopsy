@@ -27,6 +27,11 @@ export class InspectQueryService implements InspectQueryUseCase {
   async execute(input: InspectQueryInput): Promise<InspectionReport> {
     const classified = classifySqlStatement(input.rawSql);
     const settings = this.deps.connectionConfig.getRuntimeSettings();
+    const activeProfile =
+      await this.deps.connectionConfig.getActiveProfile();
+    const isReadOnlyLocked = activeProfile?.readOnlyLocked ?? false;
+    const effectiveAllowWriteAnalyze =
+      settings.allowWriteAnalyze && !isReadOnlyLocked;
 
     if (classified.kind === 'DDL') {
       throw new UnsafeQueryError(
@@ -43,8 +48,13 @@ export class InspectQueryService implements InspectQueryUseCase {
     if (
       classified.kind === 'WRITE' &&
       input.mode === 'analyze' &&
-      !settings.allowWriteAnalyze
+      !effectiveAllowWriteAnalyze
     ) {
+      if (isReadOnlyLocked && activeProfile) {
+        throw new UnsafeQueryError(
+          `Active profile "${activeProfile.name}" is Read-Only locked. EXPLAIN ANALYZE on write queries is blocked; use "Estimate Plan" instead.`,
+        );
+      }
       throw new UnsafeQueryError(
         'EXPLAIN ANALYZE on write queries (INSERT/UPDATE/DELETE/MERGE) is disabled by default. Use "Inspect Query Plan Only" or enable "queryAutopsy.postgres.allowWriteAnalyze" (executes inside a ROLLBACK-only transaction).',
       );
@@ -81,7 +91,7 @@ export class InspectQueryService implements InspectQueryUseCase {
         mode: input.mode,
         parameters,
         statementTimeoutMs: settings.statementTimeoutMs,
-        allowWriteAnalyze: settings.allowWriteAnalyze,
+        allowWriteAnalyze: effectiveAllowWriteAnalyze,
       },
     );
 
@@ -97,6 +107,8 @@ export class InspectQueryService implements InspectQueryUseCase {
       plan,
       diagnostics,
       inspectedAtIso: new Date().toISOString(),
+      profileName: activeProfile?.name,
+      readOnlyLocked: activeProfile?.readOnlyLocked,
     };
 
     await this.deps.reportPresenter.present(report);

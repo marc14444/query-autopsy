@@ -150,9 +150,20 @@ function renderMeta(report: InspectionReport): void {
     report.mode === 'analyze' ? 'EXPLAIN ANALYZE' : 'ESTIMATE ONLY',
   );
   const kindPill = el('span', 'pill pill-neutral', report.statementKind);
+  const pills: HTMLElement[] = [modePill, kindPill];
+
+  if (report.profileName) {
+    const profilePill = el(
+      'span',
+      `pill ${report.readOnlyLocked ? 'pill-warn' : 'pill-neutral'}`,
+      report.readOnlyLocked ? `${report.profileName} [RO]` : report.profileName,
+    );
+    pills.push(profilePill);
+  }
+
   const timeStr = new Date(report.inspectedAtIso).toLocaleTimeString();
-  const timePill = el('span', 'pill pill-muted', timeStr);
-  metaContainer.replaceChildren(modePill, kindPill, timePill);
+  pills.push(el('span', 'pill pill-muted', timeStr));
+  metaContainer.replaceChildren(...pills);
 }
 
 function createKpiCard(

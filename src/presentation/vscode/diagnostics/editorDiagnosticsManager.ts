@@ -49,7 +49,7 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
   private readonly storedByUri = new Map<string, StoredFindingMetadata[]>();
   private readonly closeSub: vscode.Disposable;
 
-  constructor() {
+  constructor(private readonly isReadOnlyLocked: () => boolean = () => false) {
     this.collection = vscode.languages.createDiagnosticCollection('queryAutopsy');
     this.closeSub = vscode.workspace.onDidCloseTextDocument((doc) => {
       const key = doc.uri.toString();
@@ -144,29 +144,6 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
             linesOverlap(diag.range, entry.range),
           );
 
-          const applyAction = new vscode.CodeAction(
-            `QueryAutopsy: Create index & re-analyze (${indexSql})`,
-            vscode.CodeActionKind.QuickFix,
-          );
-          applyAction.isPreferred = entry.finding.severity === 'critical';
-          applyAction.diagnostics = matchingDiags;
-          applyAction.command = {
-            command: APPLY_SUGGESTED_INDEX_COMMAND,
-            title: 'Create Index on PostgreSQL & Re-analyze',
-            arguments: [
-              {
-                indexSql,
-                querySql: entry.querySql,
-                mode: entry.mode,
-                uri: document.uri.toString(),
-                startLine: entry.range.start.line,
-                startColumn: entry.range.start.character,
-                endLine: entry.range.end.line,
-                endColumn: entry.range.end.character,
-              } satisfies ApplySuggestedIndexArgs,
-            ],
-          };
-
           const copyAction = new vscode.CodeAction(
             `QueryAutopsy: Copy index SQL (${indexSql})`,
             vscode.CodeActionKind.QuickFix,
@@ -178,7 +155,33 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
             arguments: [indexSql],
           };
 
-          actions.push(applyAction, copyAction);
+          if (!this.isReadOnlyLocked()) {
+            const applyAction = new vscode.CodeAction(
+              `QueryAutopsy: Create index & re-analyze (${indexSql})`,
+              vscode.CodeActionKind.QuickFix,
+            );
+            applyAction.isPreferred = entry.finding.severity === 'critical';
+            applyAction.diagnostics = matchingDiags;
+            applyAction.command = {
+              command: APPLY_SUGGESTED_INDEX_COMMAND,
+              title: 'Create Index on PostgreSQL & Re-analyze',
+              arguments: [
+                {
+                  indexSql,
+                  querySql: entry.querySql,
+                  mode: entry.mode,
+                  uri: document.uri.toString(),
+                  startLine: entry.range.start.line,
+                  startColumn: entry.range.start.character,
+                  endLine: entry.range.end.line,
+                  endColumn: entry.range.end.character,
+                } satisfies ApplySuggestedIndexArgs,
+              ],
+            };
+            actions.push(applyAction);
+          }
+
+          actions.push(copyAction);
         }
 
         return actions;

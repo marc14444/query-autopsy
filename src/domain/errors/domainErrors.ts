@@ -50,7 +50,7 @@ export class MissingConnectionError extends DomainError {
 
   constructor() {
     super(
-      'No PostgreSQL connection is configured. Run "QueryAutopsy: Configure PostgreSQL Connection" first.',
+      'No PostgreSQL connection is configured. Click "QueryAutopsy: Connect PG" in the status bar or run "QueryAutopsy: Switch / Configure PostgreSQL Profile".',
     );
   }
 }

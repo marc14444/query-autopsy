@@ -1,4 +1,7 @@
-import { MissingConnectionError } from '../../domain/errors/domainErrors.js';
+import {
+  MissingConnectionError,
+  UnsafeQueryError,
+} from '../../domain/errors/domainErrors.js';
 import type { ApplyIndexUseCase } from '../../domain/ports/inbound/applyIndexUseCase.js';
 import type { ConnectionConfigPort } from '../../domain/ports/outbound/connectionConfigPort.js';
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
@@ -16,6 +19,14 @@ export class ApplyIndexService implements ApplyIndexUseCase {
 
   async execute(indexSql: string): Promise<void> {
     const validatedSql = validateSafeCreateIndexSql(indexSql);
+    const activeProfile =
+      await this.deps.connectionConfig.getActiveProfile();
+    if (activeProfile?.readOnlyLocked) {
+      throw new UnsafeQueryError(
+        `Active profile "${activeProfile.name}" is Read-Only locked. Creating indexes directly from QueryAutopsy is disabled.`,
+      );
+    }
+
     const connectionString =
       await this.deps.connectionConfig.getConnectionString();
     if (!connectionString) {

@@ -35,4 +35,6 @@ export interface InspectionReport {
   readonly plan: ExecutionPlan;
   readonly diagnostics: readonly DiagnosticFinding[];
   readonly inspectedAtIso: string;
+  readonly profileName?: string | undefined;
+  readonly readOnlyLocked?: boolean | undefined;
 }

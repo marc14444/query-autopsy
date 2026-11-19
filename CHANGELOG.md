@@ -2,6 +2,14 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [0.2.0] - 2026-11-19
+
+### Added
+- **Multi-Profile Connection Manager & Status Bar**: Switch between `local`, `staging`, and `production` PostgreSQL profiles directly from the bottom status bar or Command Palette (`queryAutopsy.configureConnection`), with automatic migration from v0.1.0 `SecretStorage` URIs.
+- **Production Read-Only Lock (`readOnlyLocked`)**: Profiles marked `staging`/`production` lock out `WRITE` `EXPLAIN ANALYZE` and hide/block the `Create index & re-analyze` QuickFix while still allowing `Estimate Plan` and `READ` inspection.
+- **Workspace Auto-Discovery**: Added `queryAutopsy.discoverConnections` and pure `.env` / `docker-compose.yml` PostgreSQL URI extraction for 10-second onboarding.
+- **Dual-Registry Release Pipeline**: Added `.github/workflows/release.yml` publishing to GitHub Releases, VS Code Marketplace (`vsce`), and Open VSX (`ovsx` for Antigravity, Cursor, Windsurf, VSCodium).
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
