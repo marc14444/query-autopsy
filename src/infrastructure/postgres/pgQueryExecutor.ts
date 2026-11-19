@@ -8,7 +8,7 @@ import type {
 } from '../../domain/ports/outbound/queryExecutorPort.js';
 import { mapPostgresError } from './pgErrors.js';
 
-function buildPoolConfig(connectionString: string): PoolConfig {
+export function buildPgPoolConfig(connectionString: string): PoolConfig {
   try {
     const parsed = new URL(connectionString);
     const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
@@ -44,7 +44,7 @@ export class PgQueryExecutor implements QueryExecutorPort {
       });
     }
 
-    const baseConfig = buildPoolConfig(connectionString);
+    const baseConfig = buildPgPoolConfig(connectionString);
     const nextPool = new Pool({
       ...baseConfig,
       max: 4,
@@ -201,7 +201,7 @@ export class PgQueryExecutor implements QueryExecutorPort {
   async testConnection(
     connectionString: string,
   ): Promise<{ serverVersion: string }> {
-    const baseConfig = buildPoolConfig(connectionString);
+    const baseConfig = buildPgPoolConfig(connectionString);
     const client = new Client({
       ...baseConfig,
       connectionTimeoutMillis: 5_000,

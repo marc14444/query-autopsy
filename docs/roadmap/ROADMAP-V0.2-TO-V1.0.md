@@ -1,7 +1,7 @@
 # QueryAutopsy Master Roadmap (`v0.2.0` → `v1.0.0`)
 
 **Role**: Principal Backend Architecture & Product Execution Plan
-**Status**: `v0.4.0` Sprint 3 Implemented (`v0.3.2` Live on Open VSX)
+**Status**: `v1.0.0` Sprint 4 Implemented (All 4 Sprints Complete)
 **Mission**: Become the #1 cross-IDE SQL performance profiler across **VS Code, Antigravity IDE, Cursor, Windsurf, and VSCodium**.
 
 ---
@@ -67,7 +67,7 @@ src/domain/engines/
 
 ---
 
-### Sprint 4 (`v1.0.0`) — Ecosystem, Server Forensics & Enterprise Readiness
+### Sprint 4 (`v1.0.0`) — Ecosystem, Server Forensics & Enterprise Readiness (Implemented)
 **Theme**: *"Complete backend workflow coverage and production polish."*
 
 | Workstream | Deliverable | Acceptance Criteria |

@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
 import { ApplyIndexService } from '../../application/usecases/applyIndexService.js';
+import { FetchSlowQueriesService } from '../../application/usecases/fetchSlowQueriesService.js';
 import { InspectQueryService } from '../../application/usecases/inspectQueryService.js';
 import { SimulateIndexService } from '../../application/usecases/simulateIndexService.js';
 import { MissingParametersError } from '../../domain/errors/domainErrors.js';
 import type { InspectionReport } from '../../domain/models/diagnostic.js';
+import type { ExplainMode } from '../../domain/models/queryRequest.js';
+import type { SlowQueryEntry } from '../../domain/models/slowQuery.js';
 import { MultiEngineQueryExecutor } from '../../infrastructure/database/multiEngineQueryExecutor.js';
+import { MultiEngineSlowQueryReader } from '../../infrastructure/database/slowQueryReader.js';
 import { CompositeReportPresenter } from '../../infrastructure/vscode/compositeReportPresenter.js';
 import { OutputChannelLogger } from '../../infrastructure/vscode/logger.js';
 import { OutputChannelReportPresenter } from '../../infrastructure/vscode/outputChannelPresenter.js';
@@ -38,6 +42,14 @@ import {
   EditorDiagnosticsManager,
 } from './diagnostics/editorDiagnosticsManager.js';
 import { ConnectionStatusBar } from './statusbar/connectionStatusBar.js';
+import {
+  ESTIMATE_SLOW_QUERY_COMMAND,
+  INSPECT_SLOW_QUERY_COMMAND,
+  REFRESH_SLOW_QUERIES_COMMAND,
+  SlowQueriesTreeProvider,
+  type SlowQueryTreeNode,
+  TOGGLE_SLOW_QUERY_SORT_COMMAND,
+} from './views/slowQueriesTreeProvider.js';
 
 export interface ExtensionContainer {
   dispose(): Promise<void>;
@@ -54,6 +66,8 @@ const SUPPORTED_DOCUMENT_SELECTORS: vscode.DocumentSelector = [
   { language: 'javascript' },
   { language: 'typescriptreact' },
   { language: 'javascriptreact' },
+  { language: 'python' },
+  { language: 'go' },
   { pattern: '**/*.sql' },
 ];
 
@@ -169,6 +183,44 @@ export function createExtensionContainer(
     logger,
   });
 
+  const slowQueryReader = new MultiEngineSlowQueryReader(logger);
+  const fetchSlowQueriesUseCase = new FetchSlowQueriesService({
+    connectionConfig,
+    slowQueryReader,
+    logger,
+  });
+
+  const inspectSlowQueryFromTree = async (
+    entry: SlowQueryEntry,
+    mode: ExplainMode,
+  ): Promise<void> => {
+    const doc = await vscode.workspace.openTextDocument({
+      language: 'sql',
+      content: `${entry.query}\n`,
+    });
+    await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);
+    const fullRange = new vscode.Range(
+      new vscode.Position(0, 0),
+      doc.lineAt(Math.max(0, doc.lineCount - 1)).range.end,
+    );
+    await executeInspectionWithUi(
+      inspectQueryUseCase,
+      entry.query,
+      mode,
+      configureHandler,
+      logger,
+      { uri: doc.uri, range: fullRange },
+      handleReportProduced,
+    );
+  };
+
+  const slowQueriesTreeProvider = new SlowQueriesTreeProvider(
+    fetchSlowQueriesUseCase,
+    inspectSlowQueryFromTree,
+    configureHandler,
+    logger,
+  );
+
   rerunHandlerRef.current = async (sql, mode) => {
     await executeInspectionWithUi(
       inspectQueryUseCase,
@@ -188,8 +240,14 @@ export function createExtensionContainer(
     statusBar,
     diagnosticsManager,
     codeLensProvider,
+    slowQueriesTreeProvider,
+    vscode.window.registerTreeDataProvider(
+      'queryAutopsy.slowQueries',
+      slowQueriesTreeProvider,
+    ),
     connectionConfig.onDidChangeProfile(() => {
       void syncProfileUiState();
+      slowQueriesTreeProvider.resetToIdle();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('queryAutopsy.postgres')) {
@@ -319,6 +377,28 @@ export function createExtensionContainer(
     ),
     vscode.commands.registerCommand('queryAutopsy.clearConnection', () =>
       runClearConnectionCommand(connectionConfig, logger),
+    ),
+    vscode.commands.registerCommand(REFRESH_SLOW_QUERIES_COMMAND, () =>
+      slowQueriesTreeProvider.refresh(),
+    ),
+    vscode.commands.registerCommand(TOGGLE_SLOW_QUERY_SORT_COMMAND, () =>
+      slowQueriesTreeProvider.toggleSortAndRefresh(),
+    ),
+    vscode.commands.registerCommand(
+      INSPECT_SLOW_QUERY_COMMAND,
+      async (node?: SlowQueryTreeNode) => {
+        if (node?.kind === 'entry') {
+          await slowQueriesTreeProvider.handleInspect(node.entry, 'analyze');
+        }
+      },
+    ),
+    vscode.commands.registerCommand(
+      ESTIMATE_SLOW_QUERY_COMMAND,
+      async (node?: SlowQueryTreeNode) => {
+        if (node?.kind === 'entry') {
+          await slowQueriesTreeProvider.handleInspect(node.entry, 'estimate');
+        }
+      },
     ),
   );
 

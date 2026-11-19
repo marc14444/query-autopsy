@@ -13,7 +13,7 @@ import type {
 } from '../../domain/ports/outbound/queryExecutorPort.js';
 import { mapMysqlError } from './mysqlErrors.js';
 
-function buildMysqlConnectionOptions(connectionString: string): ConnectionOptions {
+export function buildMysqlConnectionOptions(connectionString: string): ConnectionOptions {
   const normalized = connectionString.trim().replace(/^mysql2:\/\//i, 'mysql://');
   const parsed = new URL(normalized);
   const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
