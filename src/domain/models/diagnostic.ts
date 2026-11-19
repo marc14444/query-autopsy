@@ -5,6 +5,10 @@ export type DiagnosticSeverity = 'critical' | 'warning' | 'info';
 
 export type DiagnosticRuleId =
   | 'SEQ_SCAN_LARGE_TABLE'
+  | 'ESR_COMPOSITE_INDEX_OPPORTUNITY'
+  | 'NON_SARGABLE_PREDICATE'
+  | 'CORRELATED_SUBPLAN'
+  | 'BITMAP_LOSSY_BLOCKS'
   | 'EXTERNAL_DISK_SPILL'
   | 'PLANNER_ROW_MISESTIMATE'
   | 'LOW_CACHE_HIT_RATIO'

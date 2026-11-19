@@ -437,8 +437,13 @@ export function extractSqlStatementAtOffset(
   return extractSqlStatementSpanAtOffset(rawSql, offset)?.sql;
 }
 
-const SAFE_CREATE_INDEX_REGEX =
-  /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?[a-zA-Z_][a-zA-Z0-9_$]*\s+ON\s+(?:[a-zA-Z_][a-zA-Z0-9_$]*\.)?[a-zA-Z_][a-zA-Z0-9_$]*\s*\(\s*[a-zA-Z_][a-zA-Z0-9_$]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_$]*)*\s*\)$/i;
+const INDEX_COLUMN_ITEM =
+  '(?:[a-zA-Z_][a-zA-Z0-9_$]*|[a-zA-Z_][a-zA-Z0-9_]*\\(\\s*[a-zA-Z_][a-zA-Z0-9_$]*\\s*\\))(?:\\s+(?:ASC|DESC))?(?:\\s+NULLS\\s+(?:FIRST|LAST))?';
+
+const SAFE_CREATE_INDEX_REGEX = new RegExp(
+  `^CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+CONCURRENTLY\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[a-zA-Z_][a-zA-Z0-9_$]*\\s+ON\\s+(?:[a-zA-Z_][a-zA-Z0-9_$]*\\.)?[a-zA-Z_][a-zA-Z0-9_$]*\\s*\\(\\s*${INDEX_COLUMN_ITEM}(?:\\s*,\\s*${INDEX_COLUMN_ITEM})*\\s*\\)$`,
+  'i',
+);
 
 /**
  * Validates that a SQL string is strictly a single safe `CREATE INDEX CONCURRENTLY` statement

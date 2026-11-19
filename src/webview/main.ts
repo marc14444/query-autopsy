@@ -4,8 +4,11 @@ import type {
   InspectionReport,
 } from '../domain/models/diagnostic.js';
 import type { PlanNode } from '../domain/models/executionPlan.js';
+import type { SimulateIndexResult } from '../domain/ports/inbound/simulateIndexUseCase.js';
+import type { PlanComparisonSummary } from '../domain/services/planDiff.js';
 import type {
   ExtensionToWebviewMessage,
+  WebviewRenderPayload,
   WebviewToExtensionMessage,
 } from '../infrastructure/vscode/webview/contracts.js';
 
@@ -25,10 +28,11 @@ interface WebviewState {
 
 const vscodeApi = acquireVsCodeApi();
 
-let currentReport: InspectionReport | null = null;
+let currentPayload: WebviewRenderPayload | null = null;
 let selectedNodeId: string | null = null;
 let issuesOnly = false;
 const collapsedNodeIds = new Set<string>();
+const simulationResultsByIndexSql = new Map<string, SimulateIndexResult>();
 
 function getEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -230,6 +234,102 @@ function renderKpiStrip(report: InspectionReport): void {
   );
 }
 
+function createDeltaTile(
+  label: string,
+  transition: string,
+  deltaPct: number | undefined,
+): HTMLElement {
+  let tone = 'neutral';
+  let badgeText = 'UNCHANGED';
+  if (deltaPct !== undefined) {
+    if (deltaPct <= -5) {
+      tone = 'improved';
+      badgeText = `${deltaPct.toFixed(1)}% FASTER / LOWER`;
+    } else if (deltaPct >= 5) {
+      tone = 'regressed';
+      badgeText = `+${deltaPct.toFixed(1)}% SLOWER / HIGHER`;
+    } else {
+      badgeText = `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`;
+    }
+  }
+
+  const tile = el('div', `diff-tile diff-${tone}`);
+  tile.append(
+    el('div', 'diff-label', label),
+    el('div', 'diff-transition', transition),
+    el('div', `diff-badge diff-badge-${tone}`, badgeText),
+  );
+  return tile;
+}
+
+function renderComparison(payload: WebviewRenderPayload): void {
+  const section = getEl<HTMLElement>('comparison-section');
+  const select = getEl<HTMLSelectElement>('baseline-select');
+  const grid = getEl<HTMLDivElement>('comparison-grid');
+
+  const cmp: PlanComparisonSummary | undefined = payload.comparison;
+  if (!cmp || payload.baselineOptions.length === 0) {
+    section.hidden = true;
+    return;
+  }
+
+  section.hidden = false;
+
+  const options = payload.baselineOptions.map((opt) => {
+    const option = document.createElement('option');
+    option.value = String(opt.index);
+    option.textContent = opt.label;
+    option.selected = opt.index === payload.selectedBaselineIndex;
+    return option;
+  });
+  select.replaceChildren(...options);
+
+  const tiles: HTMLElement[] = [];
+  if (
+    cmp.previousExecutionTimeMs !== undefined &&
+    cmp.currentExecutionTimeMs !== undefined
+  ) {
+    tiles.push(
+      createDeltaTile(
+        'Execution Time',
+        `${cmp.previousExecutionTimeMs.toFixed(2)} ms → ${cmp.currentExecutionTimeMs.toFixed(2)} ms`,
+        cmp.executionTimeDeltaPercent,
+      ),
+    );
+  }
+
+  tiles.push(
+    createDeltaTile(
+      'Total Cost',
+      `${cmp.previousCost.toFixed(1)} → ${cmp.currentCost.toFixed(1)}`,
+      cmp.costDeltaPercent,
+    ),
+    createDeltaTile(
+      'Total Buffers',
+      `${cmp.previousSharedBlocks.toLocaleString('en-US')} → ${cmp.currentSharedBlocks.toLocaleString('en-US')}`,
+      cmp.blocksDeltaPercent,
+    ),
+  );
+
+  const planTile = el('div', 'diff-tile diff-neutral');
+  planTile.append(
+    el('div', 'diff-label', 'Plan Shape & Alerts'),
+    el(
+      'div',
+      'diff-transition',
+      `${cmp.previousPlanSummary} ➔ ${cmp.currentPlanSummary}`,
+    ),
+    el(
+      'div',
+      'diff-badge diff-badge-neutral',
+      `Diagnostics: ${cmp.previousDiagnosticsCount} → ${cmp.currentDiagnosticsCount}`,
+    ),
+  );
+  tiles.push(planTile);
+
+  grid.replaceChildren(...tiles);
+}
+
 function severityLabel(severity: DiagnosticSeverity): string {
   switch (severity) {
     case 'critical':
@@ -241,8 +341,7 @@ function severityLabel(severity: DiagnosticSeverity): string {
   }
 }
 
-function focusNodeInTree(nodeId: string, report: InspectionReport): void {
-  // Expand all ancestor IDs (e.g. "0.0.1" -> expand "0", "0.0")
+function focusNodeInTree(nodeId: string, payload: WebviewRenderPayload): void {
   const parts = nodeId.split('.');
   for (let i = 1; i < parts.length; i++) {
     collapsedNodeIds.delete(parts.slice(0, i).join('.'));
@@ -250,9 +349,9 @@ function focusNodeInTree(nodeId: string, report: InspectionReport): void {
   selectedNodeId = nodeId;
   saveUiState();
 
-  const diagMap = indexDiagnosticsByNode(report.diagnostics);
-  renderTree(report, diagMap);
-  renderInspector(report, diagMap);
+  const diagMap = indexDiagnosticsByNode(payload.report.diagnostics);
+  renderTree(payload, diagMap);
+  renderInspector(payload, diagMap);
 
   const prefersReducedMotion = window.matchMedia(
     '(prefers-reduced-motion: reduce)',
@@ -267,7 +366,8 @@ function focusNodeInTree(nodeId: string, report: InspectionReport): void {
   });
 }
 
-function renderDiagnostics(report: InspectionReport): void {
+function renderDiagnostics(payload: WebviewRenderPayload): void {
+  const { report } = payload;
   const heading = getEl<HTMLHeadingElement>('diagnostics-heading');
   heading.textContent = `Diagnostics (${report.diagnostics.length})`;
 
@@ -302,7 +402,7 @@ function renderDiagnostics(report: InspectionReport): void {
     );
     jumpBtn.type = 'button';
     jumpBtn.addEventListener('click', () => {
-      focusNodeInTree(finding.nodeId, report);
+      focusNodeInTree(finding.nodeId, payload);
     });
 
     header.append(left, jumpBtn);
@@ -320,22 +420,50 @@ function renderDiagnostics(report: InspectionReport): void {
         `Suggested index SQL for ${finding.indexSuggestion.table}`,
       );
       pre.tabIndex = 0;
-      const code = el('code', undefined, finding.indexSuggestion.sql);
-      pre.appendChild(code);
+      pre.appendChild(el('code', undefined, finding.indexSuggestion.sql));
+
+      const actionRow = el('div', 'index-action-row');
+      const sqlToUse = finding.indexSuggestion.sql;
+      const tableName = finding.indexSuggestion.table;
 
       const copyBtn = el('button', 'btn-secondary btn-copy', 'Copy Index SQL');
       copyBtn.type = 'button';
       copyBtn.setAttribute(
         'aria-label',
-        `Copy suggested index SQL for ${finding.indexSuggestion.table}`,
+        `Copy suggested index SQL for ${tableName}`,
       );
-      const sqlToCopy = finding.indexSuggestion.sql;
       copyBtn.addEventListener('click', () => {
-        vscodeApi.postMessage({ type: 'COPY_SQL', payload: { sql: sqlToCopy } });
-        announceStatus(`Copied suggested index SQL for ${finding.indexSuggestion?.table ?? 'table'}`);
+        vscodeApi.postMessage({ type: 'COPY_SQL', payload: { sql: sqlToUse } });
+        announceStatus(`Copied suggested index SQL for ${tableName}`);
       });
 
-      sqlBox.append(pre, copyBtn);
+      const simBtn = el('button', 'btn-secondary', 'Simulate (HypoPG)');
+      simBtn.type = 'button';
+      simBtn.setAttribute(
+        'aria-label',
+        `Simulate index impact for ${tableName} using HypoPG`,
+      );
+      simBtn.addEventListener('click', () => {
+        vscodeApi.postMessage({
+          type: 'SIMULATE_INDEX',
+          payload: { querySql: report.sql, indexSql: sqlToUse },
+        });
+        announceStatus(`Running HypoPG What-If simulation for ${tableName}`);
+      });
+
+      actionRow.append(copyBtn, simBtn);
+      sqlBox.append(pre, actionRow);
+
+      const cachedSim = simulationResultsByIndexSql.get(sqlToUse);
+      if (cachedSim) {
+        const simBox = el(
+          'div',
+          `sim-result-box ${cachedSim.supported ? 'sim-supported' : 'sim-unsupported'}`,
+          cachedSim.message,
+        );
+        sqlBox.appendChild(simBox);
+      }
+
       card.appendChild(sqlBox);
     }
 
@@ -347,13 +475,14 @@ function renderDiagnostics(report: InspectionReport): void {
 
 function buildTreeBranch(
   node: PlanNode,
-  report: InspectionReport,
+  payload: WebviewRenderPayload,
   diagMap: Map<string, DiagnosticFinding[]>,
 ): HTMLLIElement | null {
   if (issuesOnly && !subtreeHasIssue(node, diagMap)) {
     return null;
   }
 
+  const { report } = payload;
   const li = el('li', 'tree-item');
   const row = el('div', 'tree-node-row');
   const hasChildren = node.children.length > 0;
@@ -361,11 +490,7 @@ function buildTreeBranch(
   const childrenUlId = `tree-children-${node.id.replace(/\./g, '-')}`;
 
   if (hasChildren) {
-    const toggleBtn = el(
-      'button',
-      'tree-toggle',
-      isCollapsed ? '▸' : '▾',
-    );
+    const toggleBtn = el('button', 'tree-toggle', isCollapsed ? '▸' : '▾');
     toggleBtn.type = 'button';
     toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
     toggleBtn.setAttribute('aria-controls', childrenUlId);
@@ -380,7 +505,7 @@ function buildTreeBranch(
         collapsedNodeIds.add(node.id);
       }
       saveUiState();
-      renderTree(report, diagMap);
+      renderTree(payload, diagMap);
     });
     row.appendChild(toggleBtn);
   } else {
@@ -415,10 +540,13 @@ function buildTreeBranch(
   ]
     .filter(Boolean)
     .join(' ');
-  const nodeName = el('span', 'node-name', labelText);
-  titleGroup.append(healthBadge, nodeName);
+  titleGroup.append(healthBadge, el('span', 'node-name', labelText));
+
   if (node.parallelAware) {
     titleGroup.appendChild(el('span', 'pill pill-parallel', 'PARALLEL'));
+  }
+  if (node.subplanName) {
+    titleGroup.appendChild(el('span', 'pill pill-muted', node.subplanName));
   }
 
   const metricsGroup = el('span', 'node-metrics-group');
@@ -463,8 +591,8 @@ function buildTreeBranch(
   selectBtn.addEventListener('click', () => {
     selectedNodeId = node.id;
     saveUiState();
-    renderTree(report, diagMap);
-    renderInspector(report, diagMap);
+    renderTree(payload, diagMap);
+    renderInspector(payload, diagMap);
   });
 
   row.appendChild(selectBtn);
@@ -475,7 +603,7 @@ function buildTreeBranch(
     childrenUl.id = childrenUlId;
     childrenUl.hidden = isCollapsed;
     for (const child of node.children) {
-      const childLi = buildTreeBranch(child, report, diagMap);
+      const childLi = buildTreeBranch(child, payload, diagMap);
       if (childLi) {
         childrenUl.appendChild(childLi);
       }
@@ -489,11 +617,11 @@ function buildTreeBranch(
 }
 
 function renderTree(
-  report: InspectionReport,
+  payload: WebviewRenderPayload,
   diagMap: Map<string, DiagnosticFinding[]>,
 ): void {
   const treeUl = getEl<HTMLUListElement>('plan-tree');
-  const rootBranch = buildTreeBranch(report.plan.root, report, diagMap);
+  const rootBranch = buildTreeBranch(payload.report.plan.root, payload, diagMap);
   if (rootBranch) {
     treeUl.replaceChildren(rootBranch);
   } else {
@@ -508,15 +636,14 @@ function addInspectorRow(
   term: string,
   definition: string,
 ): void {
-  const dt = el('dt', undefined, term);
-  const dd = el('dd', undefined, definition);
-  dl.append(dt, dd);
+  dl.append(el('dt', undefined, term), el('dd', undefined, definition));
 }
 
 function renderInspector(
-  report: InspectionReport,
+  payload: WebviewRenderPayload,
   diagMap: Map<string, DiagnosticFinding[]>,
 ): void {
+  const { report, nodeExplanations } = payload;
   const container = getEl<HTMLDivElement>('node-inspector');
   const nodeMap = flattenNodes(report.plan.root);
   const activeNode =
@@ -537,12 +664,22 @@ function renderInspector(
     ),
   );
 
+  const elements: HTMLElement[] = [header];
+
+  const plainEnglish = nodeExplanations[activeNode.id];
+  if (plainEnglish) {
+    elements.push(el('p', 'inspector-plain-english', plainEnglish));
+  }
+
   const dl = el('dl', 'inspector-dl');
   if (activeNode.indexName) {
     addInspectorRow(dl, 'Index', activeNode.indexName);
   }
   if (activeNode.joinType) {
     addInspectorRow(dl, 'Join Type', activeNode.joinType);
+  }
+  if (activeNode.subplanName) {
+    addInspectorRow(dl, 'Subplan', activeNode.subplanName);
   }
   addInspectorRow(
     dl,
@@ -580,6 +717,13 @@ function renderInspector(
       activeNode.rowsRemovedByFilter.toLocaleString('en-US'),
     );
   }
+  if (activeNode.exactHeapBlocks !== undefined || activeNode.lossyHeapBlocks !== undefined) {
+    addInspectorRow(
+      dl,
+      'Heap Blocks (Exact / Lossy)',
+      `${activeNode.exactHeapBlocks ?? 0} exact / ${activeNode.lossyHeapBlocks ?? 0} lossy`,
+    );
+  }
   if (activeNode.filter) {
     addInspectorRow(dl, 'Filter', activeNode.filter);
   }
@@ -608,7 +752,8 @@ function renderInspector(
     `hit=${buf.sharedHitBlocks}, read=${buf.sharedReadBlocks}, temp_w=${buf.tempWrittenBlocks} (${hitRatioText} hit)`,
   );
 
-  const elements: HTMLElement[] = [header, dl];
+  elements.push(dl);
+
   const nodeDiags = diagMap.get(activeNode.id) ?? [];
   if (nodeDiags.length > 0) {
     const diagBox = el('div', 'inspector-diagnostics');
@@ -616,12 +761,13 @@ function renderInspector(
       el('h3', 'inspector-subheading', `Node Alerts (${nodeDiags.length})`),
     );
     for (const d of nodeDiags) {
-      const p = el(
-        'p',
-        `inspector-alert severity-${d.severity}`,
-        `[${severityLabel(d.severity)}] ${d.title}`,
+      diagBox.appendChild(
+        el(
+          'p',
+          `inspector-alert severity-${d.severity}`,
+          `[${severityLabel(d.severity)}] ${d.title}`,
+        ),
       );
-      diagBox.appendChild(p);
     }
     elements.push(diagBox);
   }
@@ -639,8 +785,14 @@ function updateFilterButtons(): void {
   issuesBtn.setAttribute('aria-pressed', String(issuesOnly));
 }
 
-function renderReport(report: InspectionReport): void {
-  currentReport = report;
+function renderPayload(payload: WebviewRenderPayload): void {
+  const prevSql = currentPayload?.report.sql;
+  if (prevSql !== payload.report.sql) {
+    simulationResultsByIndexSql.clear();
+  }
+
+  currentPayload = payload;
+  const { report } = payload;
 
   getEl<HTMLElement>('empty-state').hidden = true;
   getEl<HTMLDivElement>('report-root').hidden = false;
@@ -655,10 +807,11 @@ function renderReport(report: InspectionReport): void {
 
   renderMeta(report);
   renderKpiStrip(report);
-  renderDiagnostics(report);
+  renderComparison(payload);
+  renderDiagnostics(payload);
   updateFilterButtons();
-  renderTree(report, diagMap);
-  renderInspector(report, diagMap);
+  renderTree(payload, diagMap);
+  renderInspector(payload, diagMap);
   saveUiState();
 }
 
@@ -673,55 +826,85 @@ function collectParentNodeIds(node: PlanNode, out: Set<string>): void {
 
 function wireEvents(): void {
   getEl<HTMLButtonElement>('btn-rerun-analyze').addEventListener('click', () => {
-    if (!currentReport) {
+    if (!currentPayload) {
       return;
     }
     vscodeApi.postMessage({
       type: 'RERUN_QUERY',
-      payload: { sql: currentReport.sql, mode: 'analyze' },
+      payload: { sql: currentPayload.report.sql, mode: 'analyze' },
     });
   });
 
   getEl<HTMLButtonElement>('btn-rerun-estimate').addEventListener(
     'click',
     () => {
-      if (!currentReport) {
+      if (!currentPayload) {
         return;
       }
       vscodeApi.postMessage({
         type: 'RERUN_QUERY',
-        payload: { sql: currentReport.sql, mode: 'estimate' },
+        payload: { sql: currentPayload.report.sql, mode: 'estimate' },
       });
     },
   );
 
+  getEl<HTMLButtonElement>('btn-copy-markdown').addEventListener('click', () => {
+    if (!currentPayload) {
+      return;
+    }
+    vscodeApi.postMessage({ type: 'COPY_MARKDOWN_REPORT' });
+    announceStatus('Copied Markdown pull request report to clipboard');
+  });
+
+  getEl<HTMLSelectElement>('baseline-select').addEventListener(
+    'change',
+    (event) => {
+      const target = event.target as HTMLSelectElement;
+      const index = Number(target.value);
+      if (Number.isInteger(index)) {
+        vscodeApi.postMessage({
+          type: 'SELECT_BASELINE',
+          payload: { index },
+        });
+      }
+    },
+  );
+
   getEl<HTMLButtonElement>('btn-expand-all').addEventListener('click', () => {
-    if (!currentReport) {
+    if (!currentPayload) {
       return;
     }
     collapsedNodeIds.clear();
     saveUiState();
-    renderTree(currentReport, indexDiagnosticsByNode(currentReport.diagnostics));
+    renderTree(
+      currentPayload,
+      indexDiagnosticsByNode(currentPayload.report.diagnostics),
+    );
   });
 
   getEl<HTMLButtonElement>('btn-collapse-all').addEventListener('click', () => {
-    if (!currentReport) {
+    if (!currentPayload) {
       return;
     }
     collapsedNodeIds.clear();
-    collectParentNodeIds(currentReport.plan.root, collapsedNodeIds);
-    // Keep root open so immediate children remain visible
-    collapsedNodeIds.delete(currentReport.plan.root.id);
+    collectParentNodeIds(currentPayload.report.plan.root, collapsedNodeIds);
+    collapsedNodeIds.delete(currentPayload.report.plan.root.id);
     saveUiState();
-    renderTree(currentReport, indexDiagnosticsByNode(currentReport.diagnostics));
+    renderTree(
+      currentPayload,
+      indexDiagnosticsByNode(currentPayload.report.diagnostics),
+    );
   });
 
   getEl<HTMLButtonElement>('btn-filter-all').addEventListener('click', () => {
     issuesOnly = false;
     updateFilterButtons();
     saveUiState();
-    if (currentReport) {
-      renderTree(currentReport, indexDiagnosticsByNode(currentReport.diagnostics));
+    if (currentPayload) {
+      renderTree(
+        currentPayload,
+        indexDiagnosticsByNode(currentPayload.report.diagnostics),
+      );
     }
   });
 
@@ -729,16 +912,25 @@ function wireEvents(): void {
     issuesOnly = true;
     updateFilterButtons();
     saveUiState();
-    if (currentReport) {
-      renderTree(currentReport, indexDiagnosticsByNode(currentReport.diagnostics));
+    if (currentPayload) {
+      renderTree(
+        currentPayload,
+        indexDiagnosticsByNode(currentPayload.report.diagnostics),
+      );
     }
   });
 
   window.addEventListener('message', (event: MessageEvent<unknown>) => {
     const data = event.data as Partial<ExtensionToWebviewMessage> | undefined;
     if (data?.type === 'RENDER_REPORT' && data.payload) {
-      renderReport(data.payload);
+      renderPayload(data.payload);
       announceStatus('Updated PostgreSQL execution plan report');
+      return;
+    }
+    if (data?.type === 'SIMULATION_RESULT' && data.payload && currentPayload) {
+      simulationResultsByIndexSql.set(data.payload.indexSql, data.payload);
+      renderDiagnostics(currentPayload);
+      announceStatus(data.payload.message);
     }
   });
 }

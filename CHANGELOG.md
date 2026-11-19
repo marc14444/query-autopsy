@@ -2,6 +2,15 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [0.3.0] - 2026-11-19
+
+### Added
+- **Before / After Execution Diff**: Webview tracks up to 5 recent runs per normalized SQL query and renders execution time, cost, buffer, and plan-shape deltas with a baseline selector.
+- **ESR Composite Index Optimizer**: Detects `Sort` over filtered scans and proposes `Equality -> Sort -> Range` composite indexes (`CREATE INDEX CONCURRENTLY ... (status, amount_cents DESC, ...)`).
+- **Staff-Level PostgreSQL Diagnostic Rules**: Added `NON_SARGABLE_PREDICATE` (with safe expression index suggestions for `lower`/`upper`/`trim`), `CORRELATED_SUBPLAN`, and `BITMAP_LOSSY_BLOCKS`.
+- **Plain-English Node Explanations**: Human-readable operator summaries inside the Webview Node Inspector (`nodeExplainer.ts`).
+- **HypoPG What-If Simulation & PR Markdown Export**: Added `Simulate (HypoPG)` button (zero disk writes/locks when `hypopg` is installed) and `Copy PR Report (MD)` button in the Webview toolbar.
+
 ## [0.2.0] - 2026-11-19
 
 ### Added

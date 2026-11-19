@@ -35,6 +35,7 @@ export function buildWebviewHtml(params: WebviewHtmlParams): string {
     <div class="toolbar-actions" role="toolbar" aria-label="Execution plan actions">
       <button type="button" id="btn-rerun-analyze" class="btn-primary">Re-run ANALYZE</button>
       <button type="button" id="btn-rerun-estimate" class="btn-secondary">Estimate Only</button>
+      <button type="button" id="btn-copy-markdown" class="btn-secondary">Copy PR Report (MD)</button>
       <button type="button" id="btn-expand-all" class="btn-secondary">Expand All</button>
       <button type="button" id="btn-collapse-all" class="btn-secondary">Collapse All</button>
     </div>
@@ -47,6 +48,17 @@ export function buildWebviewHtml(params: WebviewHtmlParams): string {
 
     <div id="report-root" hidden>
       <section aria-label="Execution summary" id="kpi-strip" class="kpi-strip"></section>
+
+      <section aria-labelledby="comparison-heading" id="comparison-section" class="comparison-section" hidden>
+        <div class="section-header">
+          <h2 id="comparison-heading">Before / After Comparison</h2>
+          <div class="baseline-picker">
+            <label for="baseline-select">Compare against:</label>
+            <select id="baseline-select"></select>
+          </div>
+        </div>
+        <div id="comparison-grid" class="comparison-grid"></div>
+      </section>
 
       <details class="sql-disclosure">
         <summary>Inspected SQL Statement</summary>

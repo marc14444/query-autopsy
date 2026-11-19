@@ -1,5 +1,11 @@
 import type { ExplainExecutionRequest } from '../../models/queryRequest.js';
 
+export interface HypotheticalSimulationOutput {
+  readonly supported: boolean;
+  readonly rawPlan?: unknown;
+  readonly reason?: string | undefined;
+}
+
 export interface QueryExecutorPort {
   executeExplain(
     connectionString: string,
@@ -10,6 +16,13 @@ export interface QueryExecutorPort {
     connectionString: string,
     indexSql: string,
   ): Promise<void>;
+
+  simulateHypotheticalIndex(
+    connectionString: string,
+    querySql: string,
+    indexSql: string,
+    parameters: readonly unknown[],
+  ): Promise<HypotheticalSimulationOutput>;
 
   testConnection(connectionString: string): Promise<{ serverVersion: string }>;
 

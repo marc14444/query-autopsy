@@ -1,7 +1,7 @@
 # QueryAutopsy Master Roadmap (`v0.2.0` → `v1.0.0`)
 
 **Role**: Principal Backend Architecture & Product Execution Plan
-**Status**: `v0.2.0` Sprint 1 Implemented (`v0.1.0` Live on GitHub)
+**Status**: `v0.3.0` Sprint 2 Implemented (`v0.2.0` Live on Open VSX)
 **Mission**: Become the #1 cross-IDE SQL performance profiler across **VS Code, Antigravity IDE, Cursor, Windsurf, and VSCodium**.
 
 ---
@@ -32,7 +32,7 @@
 
 ---
 
-### Sprint 2 (`v0.3.0`) — PostgreSQL Staff-Level Intelligence & Viral UX
+### Sprint 2 (`v0.3.0`) — PostgreSQL Staff-Level Intelligence & Viral UX (Implemented)
 **Theme**: *"Solve deep DBA-level bottlenecks and make performance wins instantly visible."*
 
 | Workstream | Deliverable | Hexagonal Layer | Acceptance Criteria |

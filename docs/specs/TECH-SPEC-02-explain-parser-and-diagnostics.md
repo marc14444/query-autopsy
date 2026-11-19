@@ -61,3 +61,19 @@ All findings are sorted by severity: `critical` -> `warning` -> `info`.
 ### Rule 5: `NESTED_LOOP_HIGH_LOOPS`
 - **Condition**: `mode === 'analyze'`, `nodeType === 'Nested Loop'`, and `children[1]?.actualLoops >= 1000`.
 - **Severity**: `critical` if `innerLoops >= 10000`, else `warning`.
+
+### Rule 6: `ESR_COMPOSITE_INDEX_OPPORTUNITY`
+- **Condition**: `Sort` node with `Sort Key` over a primary scan descendant (`Seq Scan` meeting `seqScanRowThreshold`, or `Index Scan` / `Bitmap Heap Scan` with `sortRows >= 500`).
+- **Behavior**: Classifies filter/index equality (`=`, `IN`) vs range (`<`, `<=`, `>`, `>=`, `BETWEEN`) predicates and recommends composite index column ordering **Equality → Sort → Range** (up to 4 columns, preserving `DESC` / `NULLS` clauses).
+
+### Rule 7: `NON_SARGABLE_PREDICATE`
+- **Condition**: `Filter` applies a function (`lower`, `upper`, `trim`, `date`, `date_trunc`, `extract`, `coalesce`, etc.) or explicit type cast (`col::text`) directly onto a table column on the LHS of a comparison.
+- **Behavior**: Suggests an expression index (`CREATE INDEX CONCURRENTLY ... (lower(col))`) for immutable string normalization functions, or SARGable range/type rewrites when expression indexes are unsafe (e.g. `date(timestamptz)`).
+
+### Rule 8: `CORRELATED_SUBPLAN`
+- **Condition**: `Subplan Name` starts with `SubPlan` (correlated per-outer-row evaluation) and `actualLoops >= 50` in `analyze` mode (or `totalCost >= 100` in `estimate` mode).
+- **Severity**: `critical` if `actualLoops >= 1000`, else `warning` (`info` in `estimate`).
+
+### Rule 9: `BITMAP_LOSSY_BLOCKS`
+- **Condition**: `mode === 'analyze'`, `nodeType === 'Bitmap Heap Scan'`, and `lossyHeapBlocks > 0`.
+- **Severity**: `critical` if `lossyHeapBlocks >= 100 && lossyHeapBlocks > exactHeapBlocks`, else `warning`.

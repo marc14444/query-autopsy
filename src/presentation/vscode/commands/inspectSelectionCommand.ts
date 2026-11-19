@@ -79,7 +79,7 @@ function parseParameterInput(
   return parts;
 }
 
-async function promptForParameters(
+export async function promptForParameters(
   indices: readonly number[],
 ): Promise<readonly unknown[] | undefined> {
   const highestIndex = indices[indices.length - 1] ?? 1;

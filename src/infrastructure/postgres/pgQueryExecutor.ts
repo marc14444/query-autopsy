@@ -2,7 +2,10 @@ import { Client, Pool } from 'pg';
 import { InvalidPlanError } from '../../domain/errors/domainErrors.js';
 import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type { QueryExecutorPort } from '../../domain/ports/outbound/queryExecutorPort.js';
+import type {
+  HypotheticalSimulationOutput,
+  QueryExecutorPort,
+} from '../../domain/ports/outbound/queryExecutorPort.js';
 import { mapPostgresError } from './pgErrors.js';
 
 export class PgQueryExecutor implements QueryExecutorPort {
@@ -118,6 +121,61 @@ export class PgQueryExecutor implements QueryExecutorPort {
     } catch (err) {
       throw mapPostgresError(err);
     } finally {
+      client.release();
+    }
+  }
+
+  async simulateHypotheticalIndex(
+    connectionString: string,
+    querySql: string,
+    indexSql: string,
+    parameters: readonly unknown[],
+  ): Promise<HypotheticalSimulationOutput> {
+    const pool = await this.getPool(connectionString);
+    const client = await pool.connect().catch((err) => {
+      throw mapPostgresError(err);
+    });
+
+    try {
+      const extCheck = await client.query<{ installed: boolean }>(
+        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'hypopg') AS installed",
+      );
+      if (!extCheck.rows[0]?.installed) {
+        return {
+          supported: false,
+          reason:
+            'PostgreSQL extension "hypopg" is not installed on this database. Run "CREATE EXTENSION IF NOT EXISTS hypopg;" in dev to simulate indexes with zero disk writes.',
+        };
+      }
+
+      await client.query('SELECT hypopg_reset()');
+      await client.query('SELECT * FROM hypopg_create_index($1)', [indexSql]);
+
+      const explainSql = `EXPLAIN (COSTS, VERBOSE, FORMAT JSON) ${querySql}`;
+      const res =
+        parameters.length > 0
+          ? await client.query(explainSql, [...parameters])
+          : await client.query(explainSql);
+
+      const firstRow = res.rows[0] as Record<string, unknown> | undefined;
+      const queryPlan = firstRow?.['QUERY PLAN'];
+      if (queryPlan === undefined) {
+        throw new InvalidPlanError(
+          'PostgreSQL did not return a "QUERY PLAN" column during simulation.',
+        );
+      }
+
+      return {
+        supported: true,
+        rawPlan: queryPlan,
+      };
+    } catch (err) {
+      if (err instanceof InvalidPlanError) {
+        throw err;
+      }
+      throw mapPostgresError(err);
+    } finally {
+      await client.query('SELECT hypopg_reset()').catch(() => undefined);
       client.release();
     }
   }

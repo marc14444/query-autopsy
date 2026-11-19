@@ -130,6 +130,22 @@ describe('validateSafeCreateIndexSql', () => {
     ).toBe(
       'CREATE INDEX CONCURRENTLY idx_orders_status_uid ON public.orders (status, user_id);',
     );
+
+    expect(
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_orders_esr ON orders (status, amount_cents DESC, payload);',
+      ),
+    ).toBe(
+      'CREATE INDEX CONCURRENTLY idx_orders_esr ON orders (status, amount_cents DESC, payload);',
+    );
+
+    expect(
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_users_lower_email ON users (lower(email));',
+      ),
+    ).toBe(
+      'CREATE INDEX CONCURRENTLY idx_users_lower_email ON users (lower(email));',
+    );
   });
 
   it('rejects non-concurrent indexes, arbitrary DDL, and multi-statement injections', () => {

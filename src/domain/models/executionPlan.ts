@@ -44,6 +44,9 @@ export interface PlanNode {
   readonly hashCond?: string | undefined;
   readonly rowsRemovedByFilter?: number | undefined;
   readonly hashBatches?: number | undefined;
+  readonly subplanName?: string | undefined;
+  readonly exactHeapBlocks?: number | undefined;
+  readonly lossyHeapBlocks?: number | undefined;
   readonly parallelAware: boolean;
   readonly workersPlanned?: number | undefined;
   readonly workersLaunched?: number | undefined;

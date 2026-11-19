@@ -28,6 +28,7 @@ function createDeps(options?: {
   const queryExecutor: QueryExecutorPort = {
     executeExplain: vi.fn(),
     executeCreateIndex: vi.fn().mockResolvedValue(undefined),
+    simulateHypotheticalIndex: vi.fn(),
     testConnection: vi.fn(),
     dispose: vi.fn(),
   };

@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { ApplyIndexService } from '../../application/usecases/applyIndexService.js';
 import { InspectQueryService } from '../../application/usecases/inspectQueryService.js';
+import { SimulateIndexService } from '../../application/usecases/simulateIndexService.js';
+import { MissingParametersError } from '../../domain/errors/domainErrors.js';
 import type { InspectionReport } from '../../domain/models/diagnostic.js';
 import { PgQueryExecutor } from '../../infrastructure/postgres/pgQueryExecutor.js';
 import { CompositeReportPresenter } from '../../infrastructure/vscode/compositeReportPresenter.js';
@@ -25,6 +27,7 @@ import {
 import {
   executeInspectionWithUi,
   type InspectionTarget,
+  promptForParameters,
   runInspectCodeLensCommand,
   runInspectSelectionCommand,
 } from './commands/inspectSelectionCommand.js';
@@ -104,11 +107,45 @@ export function createExtensionContainer(
 
   const rerunHandlerRef: { current?: RerunQueryHandler | undefined } = {};
 
+  const applyIndexUseCase = new ApplyIndexService({
+    connectionConfig,
+    queryExecutor,
+    logger,
+  });
+
+  const simulateIndexUseCase = new SimulateIndexService({
+    connectionConfig,
+    queryExecutor,
+    logger,
+  });
+
   const webviewPresenter = new WebviewReportPresenter(
     context.extensionUri,
     logger,
     async (sql, mode) => {
       await rerunHandlerRef.current?.(sql, mode);
+    },
+    async (querySql, indexSql, baselineCost) => {
+      try {
+        return await simulateIndexUseCase.execute({
+          querySql,
+          indexSql,
+          baselineCost,
+        });
+      } catch (err) {
+        if (err instanceof MissingParametersError) {
+          const params = await promptForParameters(err.parameterIndices);
+          if (params) {
+            return simulateIndexUseCase.execute({
+              querySql,
+              indexSql,
+              baselineCost,
+              parameters: params,
+            });
+          }
+        }
+        throw err;
+      }
     },
   );
 
@@ -127,12 +164,6 @@ export function createExtensionContainer(
     connectionConfig,
     queryExecutor,
     reportPresenter,
-    logger,
-  });
-
-  const applyIndexUseCase = new ApplyIndexService({
-    connectionConfig,
-    queryExecutor,
     logger,
   });
 

@@ -164,4 +164,108 @@ describe('analyzeExecutionPlan', () => {
       true,
     );
   });
+
+  it('detects ESR composite index opportunity for Sort over filtered Seq Scan', () => {
+    const rawPayload = [
+      {
+        Plan: {
+          'Node Type': 'Sort',
+          'Startup Cost': 6000,
+          'Total Cost': 6100,
+          'Plan Rows': 13500,
+          'Plan Width': 64,
+          'Actual Startup Time': 15,
+          'Actual Total Time': 17,
+          'Actual Rows': 13500,
+          'Actual Loops': 1,
+          'Sort Key': ['amount_cents DESC', 'payload'],
+          'Sort Method': 'quicksort',
+          'Sort Space Used': 2599,
+          'Sort Space Type': 'Memory',
+          Plans: [
+            {
+              'Node Type': 'Seq Scan',
+              'Relation Name': 'orders',
+              Alias: 'orders',
+              'Startup Cost': 0,
+              'Total Cost': 5000,
+              'Plan Rows': 13500,
+              'Plan Width': 64,
+              'Actual Startup Time': 0.01,
+              'Actual Total Time': 11,
+              'Actual Rows': 13500,
+              'Actual Loops': 1,
+              Filter: "(status = 'pending'::text)",
+              'Rows Removed by Filter': 136500,
+            },
+          ],
+        },
+        'Execution Time': 18,
+      },
+    ];
+
+    const plan = parsePostgreSqlPlan(rawPayload, 'analyze');
+    const findings = analyzeExecutionPlan(plan, { seqScanRowThreshold: 1000 });
+    const esr = findings.find(
+      (f) => f.ruleId === 'ESR_COMPOSITE_INDEX_OPPORTUNITY',
+    );
+    expect(esr).toBeDefined();
+    expect(esr?.indexSuggestion?.sql).toBe(
+      'CREATE INDEX CONCURRENTLY idx_orders_status_amount_cents_payload ON orders (status, amount_cents DESC, payload);',
+    );
+  });
+
+  it('detects non-SARGable predicates, correlated SubPlans, and lossy bitmap heap blocks', () => {
+    const rawPayload = [
+      {
+        Plan: {
+          'Node Type': 'Bitmap Heap Scan',
+          'Relation Name': 'users',
+          'Startup Cost': 10,
+          'Total Cost': 800,
+          'Plan Rows': 500,
+          'Plan Width': 32,
+          'Actual Startup Time': 1,
+          'Actual Total Time': 12,
+          'Actual Rows': 450,
+          'Actual Loops': 1,
+          Filter: "(lower(email) = 'alice@example.com'::text)",
+          'Exact Heap Blocks': 20,
+          'Lossy Heap Blocks': 150,
+          Plans: [
+            {
+              'Node Type': 'Index Scan',
+              'Subplan Name': 'SubPlan 1',
+              'Relation Name': 'orders',
+              'Startup Cost': 0.4,
+              'Total Cost': 4.5,
+              'Plan Rows': 1,
+              'Plan Width': 8,
+              'Actual Startup Time': 0.02,
+              'Actual Total Time': 0.03,
+              'Actual Rows': 1,
+              'Actual Loops': 1200,
+              Filter: "((user_id)::text = '42'::text)",
+            },
+          ],
+        },
+        'Execution Time': 48,
+      },
+    ];
+
+    const plan = parsePostgreSqlPlan(rawPayload, 'analyze');
+    const findings = analyzeExecutionPlan(plan, { seqScanRowThreshold: 1000 });
+
+    const nonSargable = findings.filter(
+      (f) => f.ruleId === 'NON_SARGABLE_PREDICATE',
+    );
+    expect(nonSargable).toHaveLength(2);
+    expect(nonSargable.some((f) => f.indexSuggestion?.sql.includes('lower(email)'))).toBe(true);
+
+    const subPlan = findings.find((f) => f.ruleId === 'CORRELATED_SUBPLAN');
+    expect(subPlan?.severity).toBe('critical');
+
+    const lossy = findings.find((f) => f.ruleId === 'BITMAP_LOSSY_BLOCKS');
+    expect(lossy?.severity).toBe('critical');
+  });
 });
