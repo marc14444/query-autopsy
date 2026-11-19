@@ -3,6 +3,7 @@ import { sanitizePostgresDisplayTarget } from '../../src/domain/models/connectio
 import {
   extractPostgresUrisFromComposeContent,
   extractPostgresUrisFromEnvContent,
+  parseEnvKeyValueMap,
 } from '../../src/domain/services/envDiscovery.js';
 
 describe('sanitizePostgresDisplayTarget', () => {
@@ -62,6 +63,66 @@ services:
       sourceFile: 'docker/docker-compose.yml',
       uri: 'postgresql://postgres:queryautopsy@localhost:5433/query_autopsy_dev',
       displayTarget: 'localhost:5433/query_autopsy_dev',
+    });
+  });
+
+  it('resolves ${VAR:-default} and .env placeholders in docker-compose services', () => {
+    const envMap = parseEnvKeyValueMap(`
+POSTGRES_USER=app_user
+POSTGRES_PASSWORD=s3cr@t#pass
+PG_PORT=5439
+`);
+
+    const composeContent = `
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "\${PG_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "\${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "\${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "\${POSTGRES_DB:-analytics_db}"
+`;
+
+    const candidates = extractPostgresUrisFromComposeContent(
+      composeContent,
+      'docker-compose.yml',
+      envMap,
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      label: 'Docker "db" (localhost:5439/analytics_db)',
+      sourceFile: 'docker-compose.yml',
+      uri: 'postgresql://app_user:s3cr%40t%23pass@localhost:5439/analytics_db',
+      displayTarget: 'localhost:5439/analytics_db',
+    });
+  });
+
+  it('marks candidates with unresolved password variables via needsPasswordPrompt', () => {
+    const composeContent = `
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: \${MISSING_DB_PASSWORD}
+      POSTGRES_DB: appdb
+`;
+
+    const candidates = extractPostgresUrisFromComposeContent(
+      composeContent,
+      'compose.yaml',
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      label: 'Docker "postgres" (localhost:5432/appdb)',
+      sourceFile: 'compose.yaml',
+      uri: 'postgresql://myuser@localhost:5432/appdb',
+      displayTarget: 'localhost:5432/appdb',
+      needsPasswordPrompt: true,
     });
   });
 });

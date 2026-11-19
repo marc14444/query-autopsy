@@ -5,6 +5,7 @@ export interface DiscoveredConnectionCandidate {
   readonly sourceFile: string;
   readonly uri: string;
   readonly displayTarget: string;
+  readonly needsPasswordPrompt?: boolean | undefined;
 }
 
 const POSTGRES_URI_KEYS = new Set([
@@ -103,11 +104,66 @@ export function extractPostgresUrisFromEnvContent(
 }
 
 /**
+ * Parses key-value pairs from a `.env` file for Compose variable substitution.
+ */
+export function parseEnvKeyValueMap(
+  content: string,
+): ReadonlyMap<string, string> {
+  const map = new Map<string, string>();
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+    const normalized = line.startsWith('export ')
+      ? line.slice('export '.length).trim()
+      : line;
+    const eqIndex = normalized.indexOf('=');
+    if (eqIndex <= 0) {
+      continue;
+    }
+    const key = normalized.slice(0, eqIndex).trim();
+    let val = normalized.slice(eqIndex + 1).trim();
+    if (!val.startsWith('"') && !val.startsWith("'")) {
+      const commentIdx = val.indexOf(' #');
+      if (commentIdx !== -1) {
+        val = val.slice(0, commentIdx).trim();
+      }
+    }
+    map.set(key, stripWrappingQuotes(val));
+  }
+  return map;
+}
+
+function resolveEnvTemplate(
+  rawValue: string,
+  envMap?: ReadonlyMap<string, string>,
+): { readonly value: string; readonly unresolved: boolean } {
+  let unresolved = false;
+  const resolved = rawValue.replace(
+    /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::?-([^}]*))?\}/g,
+    (_, varName: string, fallback: string | undefined) => {
+      const fromEnv = envMap?.get(varName);
+      if (fromEnv !== undefined && fromEnv !== '') {
+        return fromEnv;
+      }
+      if (fallback !== undefined) {
+        return fallback;
+      }
+      unresolved = true;
+      return '';
+    },
+  );
+  return { value: resolved, unresolved };
+}
+
+/**
  * Pure lightweight parser extracting local PostgreSQL service credentials from `docker-compose.yml` / `compose.yml`.
  */
 export function extractPostgresUrisFromComposeContent(
   content: string,
   sourceFile: string,
+  envMap?: ReadonlyMap<string, string>,
 ): readonly DiscoveredConnectionCandidate[] {
   const lines = content.split(/\r?\n/);
   const candidates: DiscoveredConnectionCandidate[] = [];
@@ -117,6 +173,7 @@ export function extractPostgresUrisFromComposeContent(
   let isPostgresService = false;
   let user = 'postgres';
   let password = '';
+  let passwordUnresolved = false;
   let db = 'postgres';
   let hostPort = '5432';
 
@@ -134,6 +191,7 @@ export function extractPostgresUrisFromComposeContent(
       sourceFile,
       uri,
       displayTarget,
+      ...(passwordUnresolved ? { needsPasswordPrompt: true } : {}),
     });
   };
 
@@ -175,6 +233,7 @@ export function extractPostgresUrisFromComposeContent(
         isPostgresService = false;
         user = 'postgres';
         password = '';
+        passwordUnresolved = false;
         db = 'postgres';
         hostPort = '5432';
         continue;
@@ -188,33 +247,43 @@ export function extractPostgresUrisFromComposeContent(
     const imageMatch = /^image\s*:\s*(.+)$/.exec(trimmed);
     if (imageMatch) {
       const imageName = stripWrappingQuotes(imageMatch[1]!).toLowerCase();
-      if (imageName.includes('postgres') || imageName.includes('postgis') || imageName.includes('timescaledb')) {
+      if (
+        imageName.includes('postgres') ||
+        imageName.includes('postgis') ||
+        imageName.includes('timescaledb')
+      ) {
         isPostgresService = true;
       }
       continue;
     }
 
-    const portMatch = /^-\s*["']?(?:[\d.]+:)?(\d+):5432["']?/.exec(trimmed);
+    const portMatch =
+      /^-\s*["']?(?:[\d.]+:)?(\d+|\$\{[^}]+\}):5432["']?/.exec(trimmed);
     if (portMatch) {
-      hostPort = portMatch[1]!;
+      const resolvedPort = resolveEnvTemplate(portMatch[1]!, envMap);
+      if (/^\d+$/.test(resolvedPort.value)) {
+        hostPort = resolvedPort.value;
+      }
       continue;
     }
 
     // Handles both `POSTGRES_USER: postgres` and `- POSTGRES_USER=postgres`
-    const envMatch = /^(?:-\s*)?(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)\s*[:=]\s*(.+)$/.exec(trimmed);
+    const envMatch =
+      /^(?:-\s*)?(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)\s*[:=]\s*(.+)$/.exec(
+        trimmed,
+      );
     if (envMatch) {
       const envKey = envMatch[1];
-      const envVal = stripWrappingQuotes(envMatch[2]!);
-      // Skip unresolved ${VAR} templates
-      if (envVal.includes('${')) {
-        continue;
-      }
-      if (envKey === 'POSTGRES_USER' && envVal) {
-        user = envVal;
+      const rawVal = stripWrappingQuotes(envMatch[2]!);
+      const resolved = resolveEnvTemplate(rawVal, envMap);
+
+      if (envKey === 'POSTGRES_USER' && resolved.value) {
+        user = resolved.value;
       } else if (envKey === 'POSTGRES_PASSWORD') {
-        password = envVal;
-      } else if (envKey === 'POSTGRES_DB' && envVal) {
-        db = envVal;
+        password = resolved.value;
+        passwordUnresolved = resolved.unresolved;
+      } else if (envKey === 'POSTGRES_DB' && resolved.value) {
+        db = resolved.value;
       }
     }
   }

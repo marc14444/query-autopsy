@@ -3,10 +3,12 @@ import {
   type DiscoveredConnectionCandidate,
   extractPostgresUrisFromComposeContent,
   extractPostgresUrisFromEnvContent,
+  parseEnvKeyValueMap,
 } from '../../domain/services/envDiscovery.js';
 
 const ENV_GLOB = '**/{.env,.env.local,.env.development,.env.dev}';
-const COMPOSE_GLOB = '**/{docker-compose.yml,docker-compose.yaml,compose.yml,compose.yaml}';
+const COMPOSE_GLOB =
+  '**/{docker-compose.yml,docker-compose.yaml,compose.yml,compose.yaml}';
 const EXCLUDE_GLOB = '**/{node_modules,.git,dist}/**';
 
 export async function discoverWorkspacePostgresConnections(): Promise<
@@ -24,6 +26,7 @@ export async function discoverWorkspacePostgresConnections(): Promise<
   const decoder = new TextDecoder('utf-8');
   const results: DiscoveredConnectionCandidate[] = [];
   const seenUris = new Set<string>();
+  const combinedEnvMap = new Map<string, string>();
 
   const pushUnique = (items: readonly DiscoveredConnectionCandidate[]): void => {
     for (const item of items) {
@@ -37,10 +40,12 @@ export async function discoverWorkspacePostgresConnections(): Promise<
   for (const uri of envFiles) {
     try {
       const bytes = await vscode.workspace.fs.readFile(uri);
+      const text = decoder.decode(bytes);
+      for (const [k, v] of parseEnvKeyValueMap(text)) {
+        combinedEnvMap.set(k, v);
+      }
       const relPath = vscode.workspace.asRelativePath(uri, false);
-      pushUnique(
-        extractPostgresUrisFromEnvContent(decoder.decode(bytes), relPath),
-      );
+      pushUnique(extractPostgresUrisFromEnvContent(text, relPath));
     } catch {
       // Skip unreadable files cleanly
     }
@@ -51,7 +56,11 @@ export async function discoverWorkspacePostgresConnections(): Promise<
       const bytes = await vscode.workspace.fs.readFile(uri);
       const relPath = vscode.workspace.asRelativePath(uri, false);
       pushUnique(
-        extractPostgresUrisFromComposeContent(decoder.decode(bytes), relPath),
+        extractPostgresUrisFromComposeContent(
+          decoder.decode(bytes),
+          relPath,
+          combinedEnvMap,
+        ),
       );
     } catch {
       // Skip unreadable files cleanly

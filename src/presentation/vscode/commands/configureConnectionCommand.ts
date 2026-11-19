@@ -23,13 +23,20 @@ export function validatePostgresUri(value: string): string | undefined {
   ) {
     return 'URI must start with "postgres://" or "postgresql://".';
   }
+  const atCount = (trimmed.match(/@/g) ?? []).length;
+  if (atCount > 1) {
+    return 'Password contains an unencoded "@". Replace "@" in password with "%40" or use Guided Setup.';
+  }
   try {
     const parsed = new URL(trimmed);
     if (!parsed.hostname) {
-      return 'URI must include a hostname (e.g. localhost).';
+      return 'URI must include a hostname (e.g. 127.0.0.1). If your password contains "#", replace it with "%23" or use Guided Setup.';
+    }
+    if (parsed.hash) {
+      return 'Unencoded "#" detected in URI. Encode "#" as "%23" or use Guided Setup.';
     }
   } catch {
-    return 'Invalid URL format.';
+    return 'Invalid URI format. If your password has special characters (@, #, /), use Guided Setup.';
   }
   return undefined;
 }
@@ -90,17 +97,152 @@ async function promptEnvironmentChoice(
     : undefined;
 }
 
+async function promptGuidedPostgresUri(
+  initialHost = '127.0.0.1',
+): Promise<string | undefined> {
+  const host = await vscode.window.showInputBox({
+    title: 'QueryAutopsy (1/6): PostgreSQL Host',
+    prompt: 'Use 127.0.0.1 for local Docker containers (avoids IPv6 localhost conflicts with local Homebrew Postgres)',
+    value: initialHost,
+    ignoreFocusOut: true,
+    validateInput: (v) => (v.trim() ? undefined : 'Host is required.'),
+  });
+  if (!host) {
+    return undefined;
+  }
+
+  const port = await vscode.window.showInputBox({
+    title: 'QueryAutopsy (2/6): PostgreSQL Port',
+    prompt: 'Host port mapped to PostgreSQL (e.g. 5432, 5433)',
+    value: '5432',
+    ignoreFocusOut: true,
+    validateInput: (v) => {
+      const n = Number(v.trim());
+      return Number.isInteger(n) && n >= 1 && n <= 65535
+        ? undefined
+        : 'Enter a valid port (1–65535).';
+    },
+  });
+  if (!port) {
+    return undefined;
+  }
+
+  const database = await vscode.window.showInputBox({
+    title: 'QueryAutopsy (3/6): Database Name',
+    value: 'postgres',
+    ignoreFocusOut: true,
+    validateInput: (v) => (v.trim() ? undefined : 'Database name is required.'),
+  });
+  if (!database) {
+    return undefined;
+  }
+
+  const user = await vscode.window.showInputBox({
+    title: 'QueryAutopsy (4/6): PostgreSQL Username',
+    value: 'postgres',
+    ignoreFocusOut: true,
+    validateInput: (v) => (v.trim() ? undefined : 'Username is required.'),
+  });
+  if (!user) {
+    return undefined;
+  }
+
+  const password = await vscode.window.showInputBox({
+    title: 'QueryAutopsy (5/6): PostgreSQL Password',
+    prompt: 'Special characters (@, #, /) are automatically encoded safely (leave empty for trust auth)',
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (password === undefined) {
+    return undefined;
+  }
+
+  const sslChoice = await vscode.window.showQuickPick(
+    [
+      {
+        label: 'Disable SSL (Standard for local Docker / localhost)',
+        queryParam: '',
+      },
+      {
+        label: 'Require SSL — No Verify (Self-signed Docker / Cloud dev)',
+        queryParam: '?sslmode=no-verify',
+      },
+      {
+        label: 'Require SSL — Strict Certificate Verification',
+        queryParam: '?sslmode=require',
+      },
+    ],
+    {
+      title: 'QueryAutopsy (6/6): SSL Mode',
+      ignoreFocusOut: true,
+    },
+  );
+  if (!sslChoice) {
+    return undefined;
+  }
+
+  const auth = password
+    ? `${encodeURIComponent(user.trim())}:${encodeURIComponent(password)}@`
+    : `${encodeURIComponent(user.trim())}@`;
+
+  return `postgresql://${auth}${host.trim()}:${port.trim()}/${encodeURIComponent(database.trim())}${sslChoice.queryParam}`;
+}
+
+async function promptUriMethod(
+  title: string,
+): Promise<string | undefined> {
+  const modePick = await vscode.window.showQuickPick(
+    [
+      {
+        label: '$(key) Guided Setup (Host, Port, DB, User, Password)',
+        description:
+          'Recommended for Docker or passwords containing special characters (@, #, /)',
+        mode: 'guided' as const,
+      },
+      {
+        label: '$(link) Paste PostgreSQL Connection URI',
+        description: 'postgresql://user:pass@host:5432/dbname',
+        mode: 'uri' as const,
+      },
+    ],
+    {
+      title,
+      ignoreFocusOut: true,
+    },
+  );
+  if (!modePick) {
+    return undefined;
+  }
+
+  if (modePick.mode === 'guided') {
+    return promptGuidedPostgresUri();
+  }
+
+  const uriInput = await vscode.window.showInputBox({
+    title: 'QueryAutopsy: PostgreSQL Connection URI',
+    prompt:
+      'Enter your PostgreSQL connection URI (stored encrypted in VS Code SecretStorage)',
+    placeHolder:
+      'postgresql://postgres:password@127.0.0.1:5432/mydb',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: validatePostgresUri,
+  });
+
+  return uriInput?.trim();
+}
+
 async function verifyAndSaveProfile(
   connectionConfig: ConnectionConfigPort,
   queryExecutor: QueryExecutorPort,
   logger: LoggerPort,
+  id: string,
   name: string,
   environment: ProfileEnvironment,
   readOnlyLocked: boolean,
   uri: string,
 ): Promise<boolean> {
   const trimmedUri = uri.trim();
-  const id = toProfileId(name);
 
   try {
     const versionInfo = await vscode.window.withProgress(
@@ -134,9 +276,28 @@ async function verifyAndSaveProfile(
 
     const choice = await vscode.window.showErrorMessage(
       `Connection failed for "${name}": ${message}`,
+      'Retry',
       'Save Anyway',
       'Cancel',
     );
+    if (choice === 'Retry') {
+      const retryUri = await promptUriMethod(
+        `QueryAutopsy: Update URI for "${name}"`,
+      );
+      if (retryUri) {
+        return verifyAndSaveProfile(
+          connectionConfig,
+          queryExecutor,
+          logger,
+          id,
+          name,
+          environment,
+          readOnlyLocked,
+          retryUri,
+        );
+      }
+      return false;
+    }
     if (choice === 'Save Anyway') {
       await connectionConfig.saveProfile(
         { id, name, environment, readOnlyLocked },
@@ -156,22 +317,13 @@ async function runAddManualProfileFlow(
   queryExecutor: QueryExecutorPort,
   logger: LoggerPort,
 ): Promise<boolean> {
-  const uriInput = await vscode.window.showInputBox({
-    title: 'QueryAutopsy: PostgreSQL Connection URI',
-    prompt:
-      'Enter your PostgreSQL connection URI (stored encrypted in VS Code SecretStorage)',
-    placeHolder:
-      'postgresql://postgres:queryautopsy@localhost:5432/query_autopsy_dev',
-    password: true,
-    ignoreFocusOut: true,
-    validateInput: validatePostgresUri,
-  });
-
-  if (!uriInput) {
+  const trimmedUri = await promptUriMethod(
+    'QueryAutopsy: Choose Connection Input Method',
+  );
+  if (!trimmedUri) {
     return false;
   }
 
-  const trimmedUri = uriInput.trim();
   const suggestedName = sanitizePostgresDisplayTarget(trimmedUri);
   const nameInput = await vscode.window.showInputBox({
     title: 'QueryAutopsy: Profile Name',
@@ -203,6 +355,7 @@ async function runAddManualProfileFlow(
     connectionConfig,
     queryExecutor,
     logger,
+    toProfileId(nameInput),
     nameInput.trim(),
     envChoice.environment,
     envChoice.readOnlyLocked,
@@ -219,7 +372,7 @@ export async function runAutoDetectConnectionCommand(
   const candidates = await discoverConnections();
   if (candidates.length === 0) {
     void vscode.window.showInformationMessage(
-      'QueryAutopsy: No PostgreSQL URIs found in .env or docker-compose files. Entering manual setup.',
+      'QueryAutopsy: No PostgreSQL URIs found in .env or docker-compose files. Launching manual setup.',
     );
     return runAddManualProfileFlow(connectionConfig, queryExecutor, logger);
   }
@@ -227,7 +380,7 @@ export async function runAutoDetectConnectionCommand(
   const picked = await vscode.window.showQuickPick(
     candidates.map((c) => ({
       label: `$(database) ${c.label}`,
-      description: `from ${c.sourceFile}`,
+      description: `from ${c.sourceFile}${c.needsPasswordPrompt ? ' · password required' : ''}`,
       candidate: c,
     })),
     {
@@ -242,6 +395,25 @@ export async function runAutoDetectConnectionCommand(
     return false;
   }
 
+  let finalUri = picked.candidate.uri;
+  if (picked.candidate.needsPasswordPrompt) {
+    const pw = await vscode.window.showInputBox({
+      title: `QueryAutopsy: Password for ${picked.candidate.displayTarget}`,
+      prompt:
+        'docker-compose references an unresolved password variable — enter the password to connect',
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (pw === undefined) {
+      return false;
+    }
+    if (pw.length > 0) {
+      const parsed = new URL(finalUri);
+      parsed.password = encodeURIComponent(pw);
+      finalUri = parsed.toString();
+    }
+  }
+
   const envChoice = await promptEnvironmentChoice('local');
   if (!envChoice) {
     return false;
@@ -251,10 +423,11 @@ export async function runAutoDetectConnectionCommand(
     connectionConfig,
     queryExecutor,
     logger,
+    toProfileId(picked.candidate.displayTarget),
     picked.candidate.displayTarget,
     envChoice.environment,
     envChoice.readOnlyLocked,
-    picked.candidate.uri,
+    finalUri,
   );
 }
 
@@ -278,7 +451,7 @@ export async function runConfigureConnectionCommand(
             action: 'discover' as const,
           },
           {
-            label: '$(add) Enter PostgreSQL URI manually...',
+            label: '$(key) Add PostgreSQL Profile (Guided or URI)...',
             description: 'Stored encrypted in VS Code SecretStorage',
             action: 'manual' as const,
           },
@@ -306,6 +479,7 @@ export async function runConfigureConnectionCommand(
 
   type MenuAction =
     | { kind: 'switch'; profileId: string }
+    | { kind: 'edit-active' }
     | { kind: 'add' }
     | { kind: 'discover' }
     | { kind: 'toggle-lock' }
@@ -323,10 +497,18 @@ export async function runConfigureConnectionCommand(
       };
     });
 
+  if (activeProfile) {
+    items.push({
+      label: `$(edit) Update Credentials / URI for "${activeProfile.name}"`,
+      description: activeProfile.displayTarget,
+      action: { kind: 'edit-active' },
+    });
+  }
+
   items.push(
     {
       label: '$(add) Add New PostgreSQL Profile...',
-      description: 'Store a new connection in VS Code SecretStorage',
+      description: 'Guided setup or URI (stored in SecretStorage)',
       action: { kind: 'add' },
     },
     {
@@ -374,6 +556,27 @@ export async function runConfigureConnectionCommand(
         `QueryAutopsy: Active profile set to "${switched?.name ?? selection.action.profileId}"`,
       );
       return true;
+    }
+    case 'edit-active': {
+      if (!activeProfile) {
+        return false;
+      }
+      const nextUri = await promptUriMethod(
+        `QueryAutopsy: Update Credentials for "${activeProfile.name}"`,
+      );
+      if (!nextUri) {
+        return false;
+      }
+      return verifyAndSaveProfile(
+        connectionConfig,
+        queryExecutor,
+        logger,
+        activeProfile.id,
+        activeProfile.name,
+        activeProfile.environment,
+        activeProfile.readOnlyLocked,
+        nextUri,
+      );
     }
     case 'add':
       return runAddManualProfileFlow(connectionConfig, queryExecutor, logger);

@@ -3,6 +3,7 @@ import {
   DomainError,
   MissingConnectionError,
   MissingParametersError,
+  QueryExecutionError,
 } from '../../../domain/errors/domainErrors.js';
 import type { InspectionReport } from '../../../domain/models/diagnostic.js';
 import type { ExplainMode } from '../../../domain/models/queryRequest.js';
@@ -202,6 +203,20 @@ export async function executeInspectionWithUi(
           retryErr instanceof Error ? retryErr.message : String(retryErr);
         logger.error('Parameterized inspection failed', { message: msg });
         void vscode.window.showErrorMessage(`QueryAutopsy: ${msg}`);
+      }
+      return;
+    }
+
+    if (
+      err instanceof QueryExecutionError &&
+      (err.sqlState === '28P01' || err.sqlState === '28000')
+    ) {
+      const action = await vscode.window.showErrorMessage(
+        `QueryAutopsy: ${err.message}`,
+        'Update Connection',
+      );
+      if (action === 'Update Connection') {
+        await onConfigureConnectionRequested();
       }
       return;
     }

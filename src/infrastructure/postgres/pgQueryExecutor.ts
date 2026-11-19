@@ -1,4 +1,4 @@
-import { Client, Pool } from 'pg';
+import { Client, type PoolConfig, Pool } from 'pg';
 import { InvalidPlanError } from '../../domain/errors/domainErrors.js';
 import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
@@ -7,6 +7,23 @@ import type {
   QueryExecutorPort,
 } from '../../domain/ports/outbound/queryExecutorPort.js';
 import { mapPostgresError } from './pgErrors.js';
+
+function buildPoolConfig(connectionString: string): PoolConfig {
+  try {
+    const parsed = new URL(connectionString);
+    const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
+    if (sslMode === 'no-verify') {
+      parsed.searchParams.delete('sslmode');
+      return {
+        connectionString: parsed.toString(),
+        ssl: { rejectUnauthorized: false },
+      };
+    }
+  } catch {
+    // Fallback to raw connectionString
+  }
+  return { connectionString };
+}
 
 export class PgQueryExecutor implements QueryExecutorPort {
   private pool: Pool | undefined;
@@ -27,8 +44,9 @@ export class PgQueryExecutor implements QueryExecutorPort {
       });
     }
 
+    const baseConfig = buildPoolConfig(connectionString);
     const nextPool = new Pool({
-      connectionString,
+      ...baseConfig,
       max: 4,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
@@ -183,8 +201,9 @@ export class PgQueryExecutor implements QueryExecutorPort {
   async testConnection(
     connectionString: string,
   ): Promise<{ serverVersion: string }> {
+    const baseConfig = buildPoolConfig(connectionString);
     const client = new Client({
-      connectionString,
+      ...baseConfig,
       connectionTimeoutMillis: 5_000,
     });
 

@@ -2,6 +2,13 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [0.3.1] - 2026-11-19
+
+### Fixed & Improved
+- **Docker & PostgreSQL Authentication UX**: Added 6-step **Guided Setup** (`127.0.0.1` default, automatic URL encoding for `@`, `#`, `/`), active profile credential editing (`Update Credentials / URI`), `Retry` on failed connection test, and direct `Update Connection` button on `28P01` / `28000` errors.
+- **Actionable Auth & SSL Diagnostics**: Exposed raw PostgreSQL auth errors with Docker `localhost:5432` vs `127.0.0.1` hints and added `?sslmode=no-verify` support (`ssl: { rejectUnauthorized: false }`) for self-signed TLS certificates.
+- **Docker Compose `.env` Variable Resolution**: Workspace auto-discovery now substitutes `.env` variables and `${VAR:-default}` expressions in `docker-compose.yml` and prompts securely when a password variable remains unresolved.
+
 ## [0.3.0] - 2026-11-19
 
 ### Added

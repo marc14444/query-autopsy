@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL queries inside VS Code. Inspect EXPLAIN (ANALYZE, BUFFERS) execution plans, catch Seq Scans, buffer bottlenecks, and row misestimates.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "marc14444",
   "license": "MIT",
   "icon": "resources/icon.png",

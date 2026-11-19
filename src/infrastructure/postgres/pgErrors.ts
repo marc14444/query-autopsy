@@ -28,7 +28,14 @@ export function mapPostgresError(error: unknown): QueryExecutionError {
     case '28P01':
     case '28000':
       return new QueryExecutionError(
-        'PostgreSQL authentication failed. Re-run "QueryAutopsy: Configure PostgreSQL Connection".',
+        `PostgreSQL authentication failed (${rawMessage}). Check user/password (use Guided Setup if password has special characters like @/#), or check if another local Postgres is occupying localhost:5432 instead of Docker (try 127.0.0.1 or the mapped Docker port).`,
+        code,
+      );
+    case 'SELF_SIGNED_CERT_IN_CHAIN':
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
+      return new QueryExecutionError(
+        `PostgreSQL SSL certificate rejected (${rawMessage}). Append "?sslmode=no-verify" or choose "SSL: Require (No Verify)" in Guided Setup.`,
         code,
       );
     case '3D000':
