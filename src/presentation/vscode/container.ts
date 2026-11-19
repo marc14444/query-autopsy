@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ApplyIndexService } from '../../application/usecases/applyIndexService.js';
 import { InspectQueryService } from '../../application/usecases/inspectQueryService.js';
 import type { InspectionReport } from '../../domain/models/diagnostic.js';
 import { PgQueryExecutor } from '../../infrastructure/postgres/pgQueryExecutor.js';
@@ -26,6 +27,8 @@ import {
   runInspectSelectionCommand,
 } from './commands/inspectSelectionCommand.js';
 import {
+  APPLY_SUGGESTED_INDEX_COMMAND,
+  type ApplySuggestedIndexArgs,
   COPY_SUGGESTED_INDEX_COMMAND,
   EditorDiagnosticsManager,
 } from './diagnostics/editorDiagnosticsManager.js';
@@ -103,6 +106,12 @@ export function createExtensionContainer(
     logger,
   });
 
+  const applyIndexUseCase = new ApplyIndexService({
+    connectionConfig,
+    queryExecutor,
+    logger,
+  });
+
   rerunHandlerRef.current = async (sql, mode) => {
     await executeInspectionWithUi(
       inspectQueryUseCase,
@@ -170,6 +179,62 @@ export function createExtensionContainer(
           void vscode.window.showInformationMessage(
             'QueryAutopsy: Copied suggested index SQL to clipboard.',
           );
+        }
+      },
+    ),
+    vscode.commands.registerCommand(
+      APPLY_SUGGESTED_INDEX_COMMAND,
+      async (args?: ApplySuggestedIndexArgs) => {
+        if (!args || !args.indexSql.trim()) {
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Execute this index creation on your configured PostgreSQL database?\n\n${args.indexSql}`,
+          { modal: true },
+          'Create Index & Re-analyze',
+        );
+        if (confirm !== 'Create Index & Re-analyze') {
+          return;
+        }
+
+        try {
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'QueryAutopsy: Creating index CONCURRENTLY on PostgreSQL...',
+              cancellable: false,
+            },
+            async () => applyIndexUseCase.execute(args.indexSql),
+          );
+
+          void vscode.window.showInformationMessage(
+            `QueryAutopsy: Created index (${args.indexSql})`,
+          );
+
+          const target: InspectionTarget = {
+            uri: vscode.Uri.parse(args.uri),
+            range: new vscode.Range(
+              args.startLine,
+              args.startColumn,
+              args.endLine,
+              args.endColumn,
+            ),
+          };
+
+          await executeInspectionWithUi(
+            inspectQueryUseCase,
+            args.querySql,
+            args.mode,
+            configureHandler,
+            logger,
+            target,
+            handleReportProduced,
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error('Failed to create suggested index', { message });
+          void vscode.window.showErrorMessage(`QueryAutopsy: ${message}`);
         }
       },
     ),

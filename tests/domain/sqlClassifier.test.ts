@@ -7,6 +7,7 @@ import {
 import {
   classifySqlStatement,
   extractSqlStatementAtOffset,
+  validateSafeCreateIndexSql,
 } from '../../src/domain/services/sqlClassifier.js';
 
 describe('classifySqlStatement', () => {
@@ -111,5 +112,39 @@ describe('extractSqlStatementAtOffset', () => {
   it('returns undefined when cursor is on a blank line or standalone comment', () => {
     const commentOffset = sampleFile.indexOf('First query');
     expect(extractSqlStatementAtOffset(sampleFile, commentOffset)).toBeUndefined();
+  });
+});
+
+describe('validateSafeCreateIndexSql', () => {
+  it('accepts valid single-statement CREATE INDEX CONCURRENTLY statements', () => {
+    expect(
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_orders_user_id ON orders (user_id);',
+      ),
+    ).toBe('CREATE INDEX CONCURRENTLY idx_orders_user_id ON orders (user_id);');
+
+    expect(
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_orders_status_uid ON public.orders (status, user_id)',
+      ),
+    ).toBe(
+      'CREATE INDEX CONCURRENTLY idx_orders_status_uid ON public.orders (status, user_id);',
+    );
+  });
+
+  it('rejects non-concurrent indexes, arbitrary DDL, and multi-statement injections', () => {
+    expect(() =>
+      validateSafeCreateIndexSql('CREATE INDEX idx_orders_uid ON orders (user_id);'),
+    ).toThrow(UnsafeQueryError);
+
+    expect(() =>
+      validateSafeCreateIndexSql('DROP TABLE orders;'),
+    ).toThrow(UnsafeQueryError);
+
+    expect(() =>
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_a ON orders (user_id); DROP TABLE orders;',
+      ),
+    ).toThrow(MultipleStatementsError);
   });
 });

@@ -75,4 +75,6 @@ export function extractSqlBlocks(
 
 ### 3. Inline Editor Diagnostics (`src/presentation/vscode/diagnostics/editorDiagnosticsManager.ts`)
 - Manages `vscode.DiagnosticCollection` (`'queryAutopsy'`) mapping `critical` -> `Error`, `warning` -> `Warning`, `info` -> `Information` on the inspected query range (clearing automatically when a re-run passes cleanly).
-- Provides `vscode.CodeActionProvider` (`QuickFix`) to copy the suggested `CREATE INDEX CONCURRENTLY` statement (`queryAutopsy.copySuggestedIndex`).
+- Provides `vscode.CodeActionProvider` (`QuickFix`, with `action.diagnostics` bound and line-overlap matching) offering two actions:
+  1. `QueryAutopsy: Create index & re-analyze` (`queryAutopsy.applySuggestedIndex`) — prompts modal confirmation, validates single-statement `CREATE INDEX CONCURRENTLY` via `ApplyIndexService` (`ApplyIndexUseCase`), executes outside transaction, and automatically re-inspects the query so the Webview refreshes and the squiggle disappears.
+  2. `QueryAutopsy: Copy index SQL` (`queryAutopsy.copySuggestedIndex`).

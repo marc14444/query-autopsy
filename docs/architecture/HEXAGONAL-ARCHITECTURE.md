@@ -79,6 +79,7 @@ flowchart LR
 
 ### 2.2 `src/application/` (Use Case Orchestration)
 - `usecases/inspectQueryService.ts`: Implements `InspectQueryUseCase`.
+- `usecases/applyIndexService.ts`: Implements `ApplyIndexUseCase` — validates single-statement `CREATE INDEX CONCURRENTLY` via `validateSafeCreateIndexSql`, resolves credentials from `ConnectionConfigPort`, and executes via `QueryExecutorPort.executeCreateIndex` only upon explicit user modal confirmation.
   1. Classifies SQL via `classifySqlStatement`.
   2. Enforces policy (`DDL`/`UNKNOWN` blocked; `WRITE` under `analyze` blocked unless `allowWriteAnalyze`).
   3. Validates positional parameter counts (`MissingParametersError`).

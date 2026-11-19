@@ -103,6 +103,25 @@ export class PgQueryExecutor implements QueryExecutorPort {
     }
   }
 
+  async executeCreateIndex(
+    connectionString: string,
+    indexSql: string,
+  ): Promise<void> {
+    const pool = await this.getPool(connectionString);
+    const client = await pool.connect().catch((err) => {
+      throw mapPostgresError(err);
+    });
+
+    try {
+      // CREATE INDEX CONCURRENTLY cannot execute inside a transaction block.
+      await client.query(indexSql);
+    } catch (err) {
+      throw mapPostgresError(err);
+    } finally {
+      client.release();
+    }
+  }
+
   async testConnection(
     connectionString: string,
   ): Promise<{ serverVersion: string }> {

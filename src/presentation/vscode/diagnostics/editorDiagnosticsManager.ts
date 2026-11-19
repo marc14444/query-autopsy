@@ -4,11 +4,26 @@ import type {
   DiagnosticSeverity,
   InspectionReport,
 } from '../../../domain/models/diagnostic.js';
+import type { ExplainMode } from '../../../domain/models/queryRequest.js';
 
 export const COPY_SUGGESTED_INDEX_COMMAND = 'queryAutopsy.copySuggestedIndex';
+export const APPLY_SUGGESTED_INDEX_COMMAND = 'queryAutopsy.applySuggestedIndex';
+
+export interface ApplySuggestedIndexArgs {
+  readonly indexSql: string;
+  readonly querySql: string;
+  readonly mode: ExplainMode;
+  readonly uri: string;
+  readonly startLine: number;
+  readonly startColumn: number;
+  readonly endLine: number;
+  readonly endColumn: number;
+}
 
 interface StoredFindingMetadata {
   readonly range: vscode.Range;
+  readonly querySql: string;
+  readonly mode: ExplainMode;
   readonly finding: DiagnosticFinding;
 }
 
@@ -23,6 +38,10 @@ function toVsCodeSeverity(
     case 'info':
       return vscode.DiagnosticSeverity.Information;
   }
+}
+
+function linesOverlap(a: vscode.Range, b: vscode.Range): boolean {
+  return a.end.line >= b.start.line && a.start.line <= b.end.line;
 }
 
 export class EditorDiagnosticsManager implements vscode.Disposable {
@@ -55,6 +74,8 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
     const added: StoredFindingMetadata[] = report.diagnostics.map(
       (finding) => ({
         range,
+        querySql: report.sql,
+        mode: report.mode,
         finding,
       }),
     );
@@ -88,23 +109,29 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
   createCodeActionProvider(): vscode.CodeActionProvider {
     return {
       provideCodeActions: (document, range, context) => {
+        if (
+          context.only &&
+          !vscode.CodeActionKind.QuickFix.contains(context.only) &&
+          !context.only.contains(vscode.CodeActionKind.QuickFix)
+        ) {
+          return [];
+        }
+
         const entries = this.storedByUri.get(document.uri.toString());
         if (!entries || entries.length === 0) {
           return [];
         }
 
-        const hasQueryAutopsyDiag = context.diagnostics.some(
-          (diag) => diag.source === 'QueryAutopsy',
-        );
-        if (!hasQueryAutopsyDiag) {
-          return [];
-        }
+        const activeDiagnostics =
+          this.collection
+            .get(document.uri)
+            ?.filter((diag) => diag.source === 'QueryAutopsy') ?? [];
 
         const actions: vscode.CodeAction[] = [];
         const seenSql = new Set<string>();
 
         for (const entry of entries) {
-          if (entry.range.intersection(range) === undefined) {
+          if (!linesOverlap(entry.range, range)) {
             continue;
           }
           const indexSql = entry.finding.indexSuggestion?.sql;
@@ -113,17 +140,45 @@ export class EditorDiagnosticsManager implements vscode.Disposable {
           }
           seenSql.add(indexSql);
 
-          const action = new vscode.CodeAction(
+          const matchingDiags = activeDiagnostics.filter((diag) =>
+            linesOverlap(diag.range, entry.range),
+          );
+
+          const applyAction = new vscode.CodeAction(
+            `QueryAutopsy: Create index & re-analyze (${indexSql})`,
+            vscode.CodeActionKind.QuickFix,
+          );
+          applyAction.isPreferred = entry.finding.severity === 'critical';
+          applyAction.diagnostics = matchingDiags;
+          applyAction.command = {
+            command: APPLY_SUGGESTED_INDEX_COMMAND,
+            title: 'Create Index on PostgreSQL & Re-analyze',
+            arguments: [
+              {
+                indexSql,
+                querySql: entry.querySql,
+                mode: entry.mode,
+                uri: document.uri.toString(),
+                startLine: entry.range.start.line,
+                startColumn: entry.range.start.character,
+                endLine: entry.range.end.line,
+                endColumn: entry.range.end.character,
+              } satisfies ApplySuggestedIndexArgs,
+            ],
+          };
+
+          const copyAction = new vscode.CodeAction(
             `QueryAutopsy: Copy index SQL (${indexSql})`,
             vscode.CodeActionKind.QuickFix,
           );
-          action.isPreferred = entry.finding.severity === 'critical';
-          action.command = {
+          copyAction.diagnostics = matchingDiags;
+          copyAction.command = {
             command: COPY_SUGGESTED_INDEX_COMMAND,
             title: 'Copy Suggested Index SQL',
             arguments: [indexSql],
           };
-          actions.push(action);
+
+          actions.push(applyAction, copyAction);
         }
 
         return actions;

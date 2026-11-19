@@ -6,6 +6,11 @@ export interface QueryExecutorPort {
     request: ExplainExecutionRequest,
   ): Promise<unknown>;
 
+  executeCreateIndex(
+    connectionString: string,
+    indexSql: string,
+  ): Promise<void>;
+
   testConnection(connectionString: string): Promise<{ serverVersion: string }>;
 
   dispose(): Promise<void>;

@@ -41,6 +41,11 @@ export function mapPostgresError(error: unknown): QueryExecutionError {
         `Table or view not found: ${rawMessage}`,
         code,
       );
+    case '42P07':
+      return new QueryExecutionError(
+        `Index or relation already exists: ${rawMessage}`,
+        code,
+      );
     case '42703':
       return new QueryExecutionError(`Column not found: ${rawMessage}`, code);
     case '42601':

@@ -77,6 +77,11 @@
         "command": "queryAutopsy.copySuggestedIndex",
         "title": "Copy Suggested Index SQL",
         "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.applySuggestedIndex",
+        "title": "Create Suggested Index & Re-analyze",
+        "category": "QueryAutopsy"
       }
     ],
     "menus": {
@@ -87,6 +92,10 @@
         },
         {
           "command": "queryAutopsy.copySuggestedIndex",
+          "when": "false"
+        },
+        {
+          "command": "queryAutopsy.applySuggestedIndex",
           "when": "false"
         }
       ],

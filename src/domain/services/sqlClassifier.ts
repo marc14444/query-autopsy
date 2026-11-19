@@ -436,3 +436,51 @@ export function extractSqlStatementAtOffset(
 ): string | undefined {
   return extractSqlStatementSpanAtOffset(rawSql, offset)?.sql;
 }
+
+const SAFE_CREATE_INDEX_REGEX =
+  /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?[a-zA-Z_][a-zA-Z0-9_$]*\s+ON\s+(?:[a-zA-Z_][a-zA-Z0-9_$]*\.)?[a-zA-Z_][a-zA-Z0-9_$]*\s*\(\s*[a-zA-Z_][a-zA-Z0-9_$]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_$]*)*\s*\)$/i;
+
+/**
+ * Validates that a SQL string is strictly a single safe `CREATE INDEX CONCURRENTLY` statement
+ * before allowing explicit user-confirmed index creation.
+ */
+export function validateSafeCreateIndexSql(rawSql: string): string {
+  if (!rawSql || !rawSql.trim()) {
+    throw new EmptyQueryError();
+  }
+
+  const lexed = tokenizePostgreSql(rawSql);
+  const parts: string[] = [];
+  let terminated = false;
+  let hasTokens = false;
+
+  for (const tok of lexed) {
+    if (tok.kind === 'whitespace') {
+      parts.push(' ');
+      continue;
+    }
+    if (tok.kind === 'comment') {
+      continue;
+    }
+    if (tok.kind === 'semicolon') {
+      if (hasTokens) {
+        terminated = true;
+      }
+      continue;
+    }
+    if (terminated) {
+      throw new MultipleStatementsError();
+    }
+    hasTokens = true;
+    parts.push(tok.normalized);
+  }
+
+  const normalized = parts.join('').replace(/\s+/g, ' ').trim();
+  if (!normalized || !SAFE_CREATE_INDEX_REGEX.test(normalized)) {
+    throw new UnsafeQueryError(
+      'Only single-statement CREATE INDEX CONCURRENTLY statements can be applied automatically.',
+    );
+  }
+
+  return `${normalized};`;
+}

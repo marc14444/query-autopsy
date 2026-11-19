@@ -63,6 +63,7 @@ function createMocks(options?: {
 
   const queryExecutor: QueryExecutorPort = {
     executeExplain: vi.fn().mockResolvedValue(sampleRawPlan),
+    executeCreateIndex: vi.fn().mockResolvedValue(undefined),
     testConnection: vi.fn().mockResolvedValue({ serverVersion: 'PostgreSQL 16' }),
     dispose: vi.fn().mockResolvedValue(undefined),
   };
