@@ -43,3 +43,44 @@ jobs:
             exit 1
           fi
       - run: npm run package
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: queryautopsy
+          POSTGRES_DB: query_autopsy_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: queryautopsy
+          MYSQL_DATABASE: query_autopsy_e2e
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pqueryautopsy --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run live PostgreSQL & MySQL E2E tests
+        env:
+          QUERY_AUTOPSY_PG_TEST_URI: postgresql://postgres:queryautopsy@127.0.0.1:5432/query_autopsy_e2e
+          QUERY_AUTOPSY_MYSQL_TEST_URI: mysql://root:queryautopsy@127.0.0.1:3306/query_autopsy_e2e
+        run: npm run test:e2e

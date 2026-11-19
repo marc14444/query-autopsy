@@ -13,5 +13,19 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - pgdata:/var/lib/postgresql/data
 
+  mysql:
+    image: mysql:8.4
+    container_name: query_autopsy_mysql
+    profiles: ["mysql"]
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: queryautopsy
+      MYSQL_DATABASE: query_autopsy_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+
 volumes:
   pgdata:
+  mysqldata:

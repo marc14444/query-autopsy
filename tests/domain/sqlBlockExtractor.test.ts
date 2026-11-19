@@ -71,4 +71,64 @@ describe('extractSqlBlocks', () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.sql).toBe('SELECT id, email FROM users WHERE id = $1');
   });
+
+  it('extracts TypeORM / Knex / Prisma quoted calls in TypeScript', () => {
+    const tsCode = `
+      await dataSource.query('SELECT * FROM orders WHERE status = ? ORDER BY id DESC', ['pending']);
+      await knex.raw("SELECT id FROM users WHERE org_id = ?", [99]);
+      await prisma.$queryRawUnsafe('SELECT * FROM invoices WHERE user_id = $1', 42);
+    `;
+
+    const blocks = extractSqlBlocks(tsCode, 'typescript', 'orm.ts');
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]?.sourceKind).toBe('ts-orm-call');
+    expect(blocks[1]?.sql).toBe('SELECT id FROM users WHERE org_id = ?');
+    expect(blocks[2]?.sql).toBe('SELECT * FROM invoices WHERE user_id = $1');
+  });
+
+  it('extracts Python psycopg, SQLAlchemy, and sqlite3 queries while normalizing %s and :named params', () => {
+    const pyCode = `
+      """Module docstring explaining that we select items from inventory safely."""
+      cur.execute(
+          "SELECT id, total FROM orders WHERE user_id = %s AND created_at::date >= %s",
+          (42, "2026-01-01"),
+      )
+      stmt = text("SELECT * FROM invoices WHERE tenant_id = :tid AND status = :status")
+      # sql
+      raw_sql = """
+        SELECT id FROM audit_logs
+        WHERE actor_id = %s
+        ORDER BY id DESC
+      """
+    `;
+
+    const blocks = extractSqlBlocks(pyCode, 'python', 'repo.py');
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]?.sourceKind).toBe('python-sql');
+    expect(blocks[0]?.sql).toBe(
+      'SELECT id, total FROM orders WHERE user_id = $1 AND created_at::date >= $2',
+    );
+    expect(blocks[1]?.sql).toBe(
+      'SELECT * FROM invoices WHERE tenant_id = $1 AND status = $2',
+    );
+    expect(blocks[2]?.sql).toContain('WHERE actor_id = $1');
+  });
+
+  it('extracts Go database/sql, pgx, and sqlx raw/quoted queries without false positives', () => {
+    const goCode = `
+      msg := "Select an option from menu"
+      rows, err := db.QueryContext(ctx, "SELECT email FROM users WHERE id = $1", id)
+      row := pool.QueryRowContext(ctx, \`
+        SELECT id, status
+        FROM orders
+        WHERE user_id = $1
+      \`, userID)
+    `;
+
+    const blocks = extractSqlBlocks(goCode, 'go', 'repo.go');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]?.sourceKind).toBe('go-sql');
+    expect(blocks[0]?.sql).toBe('SELECT email FROM users WHERE id = $1');
+    expect(blocks[1]?.sql).toContain('WHERE user_id = $1');
+  });
 });

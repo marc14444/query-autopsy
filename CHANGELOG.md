@@ -2,6 +2,13 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.0.0] - 2026-11-19
+
+### Added
+- **ORM & Multi-Language SQL CodeLens Extractor**: Expanded `sqlBlockExtractor.ts` to extract inspectable queries across **TypeScript/JavaScript ORMs** (Prisma `$queryRaw` / `$queryRawUnsafe`, Drizzle, TypeORM `.query()`, Knex `.raw()`), **Python** (`psycopg`, `SQLAlchemy`, `sqlite3`, Django `.raw()`, normalizing `%s` / `%(name)s` / `:param` into `$1..$n` while preserving `::cast`), and **Go** (`database/sql`, `pgx`, `sqlx`, `GORM`).
+- **Slow Query Explorer Sidebar (`queryAutopsy.slowQueries`)**: Added Explorer TreeView inspecting Top 10 slowest queries from PostgreSQL `pg_stat_statements` and MySQL `performance_schema.events_statements_summary_by_digest` with mean/total duration sort toggle, zero silent background queries, and 1-click EXPLAIN opening.
+- **Automated Live PostgreSQL & MySQL E2E Suite**: Added `tests/e2e/liveDatabases.e2e.test.ts` (`npm run test:e2e`) and GitHub Actions service containers (`postgres:16-alpine` & `mysql:8.4`) verifying live `EXPLAIN`, parameter binding, `ROLLBACK` isolation, and index creation end-to-end.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added

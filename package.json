@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "publisher": "marc14444",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -45,7 +45,10 @@
     "onLanguage:typescript",
     "onLanguage:javascript",
     "onLanguage:typescriptreact",
-    "onLanguage:javascriptreact"
+    "onLanguage:javascriptreact",
+    "onLanguage:python",
+    "onLanguage:go",
+    "onView:queryAutopsy.slowQueries"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -89,8 +92,39 @@
         "command": "queryAutopsy.applySuggestedIndex",
         "title": "Create Suggested Index & Re-analyze",
         "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.refreshSlowQueries",
+        "title": "Refresh Slow Queries",
+        "category": "QueryAutopsy",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "queryAutopsy.toggleSlowQuerySort",
+        "title": "Toggle Slow Query Sort (Mean / Total Time)",
+        "category": "QueryAutopsy",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "queryAutopsy.inspectSlowQuery",
+        "title": "Inspect Slow Query (ANALYZE)",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.estimateSlowQuery",
+        "title": "Estimate Slow Query Plan",
+        "category": "QueryAutopsy",
+        "icon": "$(eye)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "queryAutopsy.slowQueries",
+          "name": "QueryAutopsy: Slow Queries"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         {
@@ -104,6 +138,33 @@
         {
           "command": "queryAutopsy.applySuggestedIndex",
           "when": "false"
+        },
+        {
+          "command": "queryAutopsy.inspectSlowQuery",
+          "when": "false"
+        },
+        {
+          "command": "queryAutopsy.estimateSlowQuery",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "queryAutopsy.refreshSlowQueries",
+          "when": "view == queryAutopsy.slowQueries",
+          "group": "navigation@1"
+        },
+        {
+          "command": "queryAutopsy.toggleSlowQuerySort",
+          "when": "view == queryAutopsy.slowQueries",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "queryAutopsy.estimateSlowQuery",
+          "when": "view == queryAutopsy.slowQueries && viewItem == slowQueryEntry",
+          "group": "inline@1"
         }
       ],
       "editor/context": [
@@ -167,6 +228,7 @@
     "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
     "lint": "eslint src tests",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "prepublishOnly": "npm run check-types && npm run test && npm run package"
   },

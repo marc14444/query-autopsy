@@ -3,7 +3,12 @@ import {
   extractSqlStatementSpans,
 } from './sqlClassifier.js';
 
-export type SqlBlockSourceKind = 'sql-file' | 'ts-tagged-template';
+export type SqlBlockSourceKind =
+  | 'sql-file'
+  | 'ts-tagged-template'
+  | 'ts-orm-call'
+  | 'python-sql'
+  | 'go-sql';
 
 export interface DetectedSqlBlock {
   readonly sql: string;
@@ -19,13 +24,22 @@ interface LinePosition {
   readonly column: number;
 }
 
-const SQL_LANGUAGE_IDS = new Set(['sql', 'postgres', 'pgsql', 'mssql']);
+const SQL_LANGUAGE_IDS = new Set([
+  'sql',
+  'postgres',
+  'pgsql',
+  'mysql',
+  'sqlite',
+  'mssql',
+]);
 const TS_JS_LANGUAGE_IDS = new Set([
   'typescript',
   'javascript',
   'typescriptreact',
   'javascriptreact',
 ]);
+const PYTHON_LANGUAGE_IDS = new Set(['python']);
+const GO_LANGUAGE_IDS = new Set(['go']);
 
 const REGEX_PRECEDING_KEYWORDS = new Set([
   'return',
@@ -39,6 +53,50 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
   'await',
   'yield',
   'else',
+]);
+
+const TS_DRIVER_CALL_METHODS = new Set([
+  'query',
+  'queryone',
+  'queryall',
+  'execute',
+  'raw',
+  '$queryraw',
+  '$queryrawunsafe',
+  '$executeraw',
+  '$executerawunsafe',
+]);
+
+const PYTHON_DB_CALL_METHODS = new Set([
+  'execute',
+  'executemany',
+  'executescript',
+  'text',
+  'raw',
+  'fetch',
+  'fetchrow',
+  'fetchval',
+  'fetchall',
+  'fetchone',
+  'query',
+]);
+
+const GO_DB_CALL_METHODS = new Set([
+  'query',
+  'querycontext',
+  'queryrow',
+  'queryrowcontext',
+  'exec',
+  'execcontext',
+  'select',
+  'selectcontext',
+  'get',
+  'getcontext',
+  'namedquery',
+  'namedexec',
+  'raw',
+  'prepare',
+  'preparecontext',
 ]);
 
 function computeLineOffsets(text: string): readonly number[] {
@@ -80,22 +138,25 @@ function offsetToPosition(
 }
 
 function isInspectableSql(candidateSql: string): boolean {
-  try {
-    const classified = classifySqlStatement(candidateSql);
-    return classified.kind === 'READ' || classified.kind === 'WRITE';
-  } catch {
-    return false;
+  for (const engine of ['postgresql', 'mysql', 'sqlite'] as const) {
+    try {
+      const classified = classifySqlStatement(candidateSql, engine);
+      if (classified.kind === 'READ' || classified.kind === 'WRITE') {
+        return true;
+      }
+    } catch {
+      // Try next dialect
+    }
   }
+  return false;
 }
 
 function looksLikeStandaloneSql(sql: string): boolean {
   const upper = sql.toUpperCase();
   if (/^\s*SELECT\b/.test(upper)) {
-    // Require FROM plus an actual SQL structural clue so English text like
-    // "Select an option from your settings" never triggers a false CodeLens.
     return (
       /\bFROM\b/.test(upper) &&
-      (/(\*|,|\$[1-9][0-9]*|;|\n)/.test(sql) ||
+      (/(\*|,|\$[1-9][0-9]*|\?|;|\n)/.test(sql) ||
         /\b(WHERE|JOIN|GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|UNION|INTERSECT|EXCEPT)\b/.test(
           upper,
         ))
@@ -104,7 +165,7 @@ function looksLikeStandaloneSql(sql: string): boolean {
   if (/^\s*WITH\b/.test(upper)) {
     return /\bAS\s*\(/.test(upper);
   }
-  if (/^\s*INSERT\b/.test(upper)) {
+  if (/^\s*(?:INSERT|REPLACE)\b/.test(upper)) {
     return /\bINTO\b/.test(upper);
   }
   if (/^\s*UPDATE\b/.test(upper)) {
@@ -117,6 +178,100 @@ function looksLikeStandaloneSql(sql: string): boolean {
     return /\bINTO\b/.test(upper) && /\bUSING\b/.test(upper);
   }
   return false;
+}
+
+function unescapeStandardString(raw: string): string {
+  return raw
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\'/g, "'")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+}
+
+/**
+ * Normalizes Python driver placeholders (`%s`, `%(name)s`, `:name`) outside SQL string literals
+ * into `$1..$n` while keeping PostgreSQL `::type` casts and existing `?` / `$1` untouched.
+ */
+function normalizePythonPlaceholders(sql: string): string {
+  let out = '';
+  let i = 0;
+  let nextIdx = 1;
+  const namedMap = new Map<string, string>();
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+
+    // Preserve SQL string literals verbatim
+    if (ch === "'" || ch === '"') {
+      const start = i;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === ch) {
+          if (sql[i + 1] === ch) {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += sql.slice(start, i);
+      continue;
+    }
+
+    // %s or %(name)s (psycopg / pymysql)
+    if (ch === '%') {
+      if (sql[i + 1] === 's') {
+        out += `$${nextIdx++}`;
+        i += 2;
+        continue;
+      }
+      const namedPyMatch = /^%\(([a-zA-Z_][a-zA-Z0-9_]*)\)s/.exec(
+        sql.slice(i),
+      );
+      if (namedPyMatch?.[1]) {
+        const key = namedPyMatch[1];
+        let placeholder = namedMap.get(key);
+        if (!placeholder) {
+          placeholder = `$${nextIdx++}`;
+          namedMap.set(key, placeholder);
+        }
+        out += placeholder;
+        i += namedPyMatch[0].length;
+        continue;
+      }
+    }
+
+    // SQLAlchemy :param_name (avoid matching PG ::type casts)
+    if (ch === ':') {
+      const prevChar = i > 0 ? sql[i - 1] : undefined;
+      if (prevChar === ':' || sql[i + 1] === ':') {
+        out += ch;
+        i++;
+        continue;
+      }
+      const namedSaMatch = /^:([a-zA-Z_][a-zA-Z0-9_]*)/.exec(sql.slice(i));
+      if (namedSaMatch?.[1]) {
+        const key = namedSaMatch[1];
+        let placeholder = namedMap.get(key);
+        if (!placeholder) {
+          placeholder = `$${nextIdx++}`;
+          namedMap.set(key, placeholder);
+        }
+        out += placeholder;
+        i += namedSaMatch[0].length;
+        continue;
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
 interface ParsedTemplateResult {
@@ -219,6 +374,35 @@ function parseTemplateLiteral(
   };
 }
 
+function pushBlockIfValid(
+  blocks: DetectedSqlBlock[],
+  lineOffsets: readonly number[],
+  candidateSql: string,
+  startOffset: number,
+  endOffset: number,
+  sourceKind: SqlBlockSourceKind,
+  hasExplicitContext: boolean,
+): void {
+  const trimmedSql = candidateSql.trim();
+  if (
+    !trimmedSql ||
+    (!hasExplicitContext && !looksLikeStandaloneSql(trimmedSql)) ||
+    !isInspectableSql(trimmedSql)
+  ) {
+    return;
+  }
+  const startPos = offsetToPosition(lineOffsets, startOffset);
+  const endPos = offsetToPosition(lineOffsets, endOffset);
+  blocks.push({
+    sql: trimmedSql,
+    startLine: startPos.line,
+    startColumn: startPos.column,
+    endLine: endPos.line,
+    endColumn: endPos.column,
+    sourceKind,
+  });
+}
+
 function extractTsTemplateBlocks(
   text: string,
   lineOffsets: readonly number[],
@@ -240,7 +424,6 @@ function extractTsTemplateBlocks(
       continue;
     }
 
-    // Single-line comment
     if (ch === '/' && next === '/') {
       const commentStart = i + 2;
       i += 2;
@@ -254,7 +437,6 @@ function extractTsTemplateBlocks(
       continue;
     }
 
-    // Block comment (detect /* sql */)
     if (ch === '/' && next === '*') {
       const commentStart = i + 2;
       i += 2;
@@ -267,7 +449,6 @@ function extractTsTemplateBlocks(
       continue;
     }
 
-    // Regex literal heuristic
     if (
       ch === '/' &&
       (prevNonTrivia === '' ||
@@ -304,7 +485,27 @@ function extractTsTemplateBlocks(
     }
 
     if (ch === "'" || ch === '"') {
-      i = skipJsString(text, i, ch);
+      const startOffset = i;
+      const endOffset = skipJsString(text, i, ch);
+      const isDriverQueryCall =
+        prevNonTrivia === '(' &&
+        TS_DRIVER_CALL_METHODS.has(prevCallIdentifier.toLowerCase());
+      const hasExplicitContext = pendingSqlComment || isDriverQueryCall;
+
+      if (hasExplicitContext) {
+        const rawInner = text.slice(startOffset + 1, Math.max(startOffset + 1, endOffset - 1));
+        pushBlockIfValid(
+          blocks,
+          lineOffsets,
+          unescapeStandardString(rawInner),
+          startOffset,
+          endOffset,
+          'ts-orm-call',
+          true,
+        );
+      }
+
+      i = endOffset;
       prevNonTrivia = 'string';
       pendingSqlComment = false;
       continue;
@@ -318,27 +519,19 @@ function extractTsTemplateBlocks(
       const isTaggedSql = /(?:^|\.)sql$/i.test(prevNonTrivia);
       const isDriverQueryCall =
         prevNonTrivia === '(' &&
-        /^(query|execute|raw)$/i.test(prevCallIdentifier);
+        TS_DRIVER_CALL_METHODS.has(prevCallIdentifier.toLowerCase());
       const hasExplicitContext =
         isTaggedSql || pendingSqlComment || isDriverQueryCall;
 
-      const trimmedSql = parsed.sql.trim();
-      if (
-        trimmedSql &&
-        (hasExplicitContext || looksLikeStandaloneSql(trimmedSql)) &&
-        isInspectableSql(trimmedSql)
-      ) {
-        const startPos = offsetToPosition(lineOffsets, startOffset);
-        const endPos = offsetToPosition(lineOffsets, parsed.endOffset);
-        blocks.push({
-          sql: trimmedSql,
-          startLine: startPos.line,
-          startColumn: startPos.column,
-          endLine: endPos.line,
-          endColumn: endPos.column,
-          sourceKind: 'ts-tagged-template',
-        });
-      }
+      pushBlockIfValid(
+        blocks,
+        lineOffsets,
+        parsed.sql,
+        startOffset,
+        parsed.endOffset,
+        isDriverQueryCall && !isTaggedSql ? 'ts-orm-call' : 'ts-tagged-template',
+        hasExplicitContext,
+      );
 
       prevNonTrivia = '`';
       pendingSqlComment = false;
@@ -376,6 +569,301 @@ function extractTsTemplateBlocks(
   return blocks;
 }
 
+function extractPythonSqlBlocks(
+  text: string,
+  lineOffsets: readonly number[],
+): readonly DetectedSqlBlock[] {
+  const blocks: DetectedSqlBlock[] = [];
+  let i = 0;
+  const len = text.length;
+
+  let prevNonTrivia = '';
+  let prevCallIdentifier = '';
+  let pendingSqlComment = false;
+
+  while (i < len) {
+    const ch = text[i]!;
+
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    if (ch === '#') {
+      const commentStart = i + 1;
+      i++;
+      while (i < len && text[i] !== '\n') {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      if (commentText === 'sql') {
+        pendingSqlComment = true;
+      }
+      continue;
+    }
+
+    // Optional string prefix: r, u, b, f, fr, rf, br, rb (case-insensitive)
+    let prefix = '';
+    let strStart = i;
+    if (
+      /[rfbu]/i.test(ch) &&
+      (text[i + 1] === "'" ||
+        text[i + 1] === '"' ||
+        (/[rfbu]/i.test(text[i + 1] ?? '') &&
+          (text[i + 2] === "'" || text[i + 2] === '"')))
+    ) {
+      if (text[i + 1] === "'" || text[i + 1] === '"') {
+        prefix = ch.toLowerCase();
+        strStart = i + 1;
+      } else {
+        prefix = text.slice(i, i + 2).toLowerCase();
+        strStart = i + 2;
+      }
+    }
+
+    const quoteChar = text[strStart];
+    if (quoteChar === "'" || quoteChar === '"') {
+      const isTriple =
+        text[strStart + 1] === quoteChar && text[strStart + 2] === quoteChar;
+      const delimLen = isTriple ? 3 : 1;
+      const isRaw = prefix.includes('r');
+      let cursor = strStart + delimLen;
+
+      while (cursor < len) {
+        if (!isRaw && text[cursor] === '\\') {
+          cursor += 2;
+          continue;
+        }
+        if (isTriple) {
+          if (
+            text[cursor] === quoteChar &&
+            text[cursor + 1] === quoteChar &&
+            text[cursor + 2] === quoteChar
+          ) {
+            cursor += 3;
+            break;
+          }
+        } else if (text[cursor] === quoteChar || text[cursor] === '\n') {
+          if (text[cursor] === quoteChar) {
+            cursor++;
+          }
+          break;
+        }
+        cursor++;
+      }
+
+      const rawInner = text.slice(
+        strStart + delimLen,
+        Math.max(strStart + delimLen, cursor - delimLen),
+      );
+      const unescaped = isRaw ? rawInner : unescapeStandardString(rawInner);
+      const normalized = normalizePythonPlaceholders(unescaped);
+
+      const isDbCall =
+        prevNonTrivia === '(' &&
+        PYTHON_DB_CALL_METHODS.has(prevCallIdentifier.toLowerCase());
+      const hasExplicitContext = pendingSqlComment || isDbCall;
+
+      if (hasExplicitContext || isTriple) {
+        pushBlockIfValid(
+          blocks,
+          lineOffsets,
+          normalized,
+          i,
+          cursor,
+          'python-sql',
+          hasExplicitContext,
+        );
+      }
+
+      i = cursor;
+      prevNonTrivia = 'string';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    if (/[a-zA-Z_]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < len && /[a-zA-Z0-9_.]/.test(text[i]!)) {
+        i++;
+      }
+      const word = text.slice(start, i);
+      const segments = word.split('.');
+      prevCallIdentifier = segments[segments.length - 1] ?? '';
+      prevNonTrivia = word;
+      pendingSqlComment = false;
+      continue;
+    }
+
+    prevNonTrivia = ch;
+    if (ch !== '(') {
+      pendingSqlComment = false;
+    }
+    i++;
+  }
+
+  return blocks;
+}
+
+function extractGoSqlBlocks(
+  text: string,
+  lineOffsets: readonly number[],
+): readonly DetectedSqlBlock[] {
+  const blocks: DetectedSqlBlock[] = [];
+  let i = 0;
+  const len = text.length;
+
+  let prevNonTrivia = '';
+  let prevCallIdentifier = '';
+  const callStack: string[] = [];
+  let pendingSqlComment = false;
+
+  const isInsideGoDbCall = (): boolean => {
+    if (prevNonTrivia !== '(' && prevNonTrivia !== ',') {
+      return false;
+    }
+    const activeCall = callStack[callStack.length - 1] ?? '';
+    return GO_DB_CALL_METHODS.has(activeCall.toLowerCase());
+  };
+
+  while (i < len) {
+    const ch = text[i]!;
+    const next = text[i + 1];
+
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      const commentStart = i + 2;
+      i += 2;
+      while (i < len && text[i] !== '\n') {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      if (commentText === 'sql') {
+        pendingSqlComment = true;
+      }
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      const commentStart = i + 2;
+      i += 2;
+      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      i = Math.min(len, i + 2);
+      pendingSqlComment = commentText === 'sql';
+      continue;
+    }
+
+    // Rune literal '...'
+    if (ch === "'") {
+      i = skipJsString(text, i, "'");
+      prevNonTrivia = 'rune';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    // Interpreted Go string "..."
+    if (ch === '"') {
+      const startOffset = i;
+      const endOffset = skipJsString(text, i, '"');
+      const hasExplicitContext = pendingSqlComment || isInsideGoDbCall();
+
+      const rawInner = text.slice(
+        startOffset + 1,
+        Math.max(startOffset + 1, endOffset - 1),
+      );
+      pushBlockIfValid(
+        blocks,
+        lineOffsets,
+        unescapeStandardString(rawInner),
+        startOffset,
+        endOffset,
+        'go-sql',
+        hasExplicitContext,
+      );
+
+      i = endOffset;
+      prevNonTrivia = 'string';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    // Raw Go string `...`
+    if (ch === '`') {
+      const startOffset = i;
+      const closeIdx = text.indexOf('`', i + 1);
+      const endOffset = closeIdx === -1 ? len : closeIdx + 1;
+      const rawInner = text.slice(
+        startOffset + 1,
+        closeIdx === -1 ? len : closeIdx,
+      );
+
+      const hasExplicitContext = pendingSqlComment || isInsideGoDbCall();
+
+      pushBlockIfValid(
+        blocks,
+        lineOffsets,
+        rawInner,
+        startOffset,
+        endOffset,
+        'go-sql',
+        hasExplicitContext,
+      );
+
+      i = endOffset;
+      prevNonTrivia = '`';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    if (ch === '(') {
+      callStack.push(prevCallIdentifier);
+      prevCallIdentifier = '';
+      prevNonTrivia = '(';
+      i++;
+      continue;
+    }
+
+    if (ch === ')') {
+      callStack.pop();
+      prevCallIdentifier = '';
+      prevNonTrivia = ')';
+      pendingSqlComment = false;
+      i++;
+      continue;
+    }
+
+    if (/[a-zA-Z_]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < len && /[a-zA-Z0-9_.]/.test(text[i]!)) {
+        i++;
+      }
+      const word = text.slice(start, i);
+      const segments = word.split('.');
+      prevCallIdentifier = segments[segments.length - 1] ?? '';
+      prevNonTrivia = word;
+      pendingSqlComment = false;
+      continue;
+    }
+
+    prevNonTrivia = ch;
+    if (ch !== ',') {
+      pendingSqlComment = false;
+    }
+    i++;
+  }
+
+  return blocks;
+}
+
 function isSqlSource(languageId: string, fileName?: string): boolean {
   if (SQL_LANGUAGE_IDS.has(languageId)) {
     return true;
@@ -387,15 +875,27 @@ function isTsOrJsSource(languageId: string, fileName?: string): boolean {
   if (TS_JS_LANGUAGE_IDS.has(languageId)) {
     return true;
   }
-  if (!fileName) {
-    return false;
+  return Boolean(fileName && /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/i.test(fileName));
+}
+
+function isPythonSource(languageId: string, fileName?: string): boolean {
+  if (PYTHON_LANGUAGE_IDS.has(languageId)) {
+    return true;
   }
-  return /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/i.test(fileName);
+  return Boolean(fileName && /\.pyw?$/i.test(fileName));
+}
+
+function isGoSource(languageId: string, fileName?: string): boolean {
+  if (GO_LANGUAGE_IDS.has(languageId)) {
+    return true;
+  }
+  return Boolean(fileName && /\.go$/i.test(fileName));
 }
 
 /**
- * Pure domain extractor detecting inspectable SQL blocks inside `.sql` scripts
- * and TypeScript/JavaScript template literals (`sql\`...\``, `/* sql *\/ \`...\``, `.query(\`...\`)`).
+ * Pure domain extractor detecting inspectable SQL blocks across `.sql` files,
+ * TypeScript/JavaScript ORMs (Prisma, Drizzle, TypeORM, Knex, pg/mysql2),
+ * Python (`psycopg`, `sqlalchemy`, `sqlite3`, Django), and Go (`database/sql`, `pgx`, `sqlx`, `GORM`).
  */
 export function extractSqlBlocks(
   text: string,
@@ -431,6 +931,14 @@ export function extractSqlBlocks(
 
   if (isTsOrJsSource(languageId, fileName)) {
     return extractTsTemplateBlocks(text, lineOffsets);
+  }
+
+  if (isPythonSource(languageId, fileName)) {
+    return extractPythonSqlBlocks(text, lineOffsets);
+  }
+
+  if (isGoSource(languageId, fileName)) {
+    return extractGoSqlBlocks(text, lineOffsets);
   }
 
   return [];
