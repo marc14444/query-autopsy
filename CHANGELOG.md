@@ -2,6 +2,11 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [0.3.2] - 2026-11-19
+
+### Fixed
+- **GitHub Actions Release Workflow (`release.yml`)**: Replaced invalid step-level `if: ${{ secrets.* }}` expressions with shell checks against step `env` variables so tagged releases pass workflow validation and attach `.vsix` artifacts cleanly even when marketplace secrets are unset.
+
 ## [0.3.1] - 2026-11-19
 
 ### Fixed & Improved

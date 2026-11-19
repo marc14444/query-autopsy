@@ -31,13 +31,21 @@ jobs:
           generate_release_notes: true
 
       - name: Publish to Visual Studio Marketplace
-        if: ${{ secrets.VSCE_PAT != '' }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx @vscode/vsce publish --packagePath *.vsix --no-dependencies
+        run: |
+          if [ -n "${VSCE_PAT:-}" ]; then
+            npx --no-install vsce publish --packagePath *.vsix --no-dependencies --skip-duplicate
+          else
+            echo "VSCE_PAT secret is not configured; skipping Visual Studio Marketplace publish."
+          fi
 
       - name: Publish to Open VSX Registry (Antigravity, Cursor, Windsurf, VSCodium)
-        if: ${{ secrets.OVSX_PAT != '' }}
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx ovsx publish *.vsix -p "$OVSX_PAT"
+        run: |
+          if [ -n "${OVSX_PAT:-}" ]; then
+            npx --yes ovsx publish *.vsix -p "$OVSX_PAT"
+          else
+            echo "OVSX_PAT secret is not configured; skipping Open VSX publish."
+          fi
