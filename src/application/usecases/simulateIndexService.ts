@@ -3,6 +3,9 @@ import {
   MissingParametersError,
   UnsafeQueryError,
 } from '../../domain/errors/domainErrors.js';
+import { getEngineAdapter } from '../../domain/engines/engineRegistry.js';
+import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import { detectDatabaseEngineFromUri } from '../../domain/models/databaseEngine.js';
 import type {
   SimulateIndexInput,
   SimulateIndexResult,
@@ -12,11 +15,6 @@ import type { ConnectionConfigPort } from '../../domain/ports/outbound/connectio
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
 import type { QueryExecutorPort } from '../../domain/ports/outbound/queryExecutorPort.js';
 import { summarizePlanChain } from '../../domain/services/planDiff.js';
-import { parsePostgreSqlPlan } from '../../domain/services/planParser.js';
-import {
-  classifySqlStatement,
-  validateSafeCreateIndexSql,
-} from '../../domain/services/sqlClassifier.js';
 
 export interface SimulateIndexDependencies {
   readonly connectionConfig: ConnectionConfigPort;
@@ -28,14 +26,35 @@ export class SimulateIndexService implements SimulateIndexUseCase {
   constructor(private readonly deps: SimulateIndexDependencies) {}
 
   async execute(input: SimulateIndexInput): Promise<SimulateIndexResult> {
-    const classified = classifySqlStatement(input.querySql);
+    const [activeProfile, connectionString] = await Promise.all([
+      this.deps.connectionConfig.getActiveProfile(),
+      this.deps.connectionConfig.getConnectionString(),
+    ]);
+
+    const engine = activeProfile
+      ? resolveProfileEngine(activeProfile)
+      : connectionString
+        ? detectDatabaseEngineFromUri(connectionString)
+        : 'postgresql';
+    const adapter = getEngineAdapter(engine);
+
+    if (!adapter.capabilities.supportsHypotheticalIndexes) {
+      return {
+        supported: false,
+        indexSql: input.indexSql,
+        message:
+          'Hypothetical index simulation (HypoPG) is only available for PostgreSQL databases.',
+      };
+    }
+
+    const classified = adapter.classifySql(input.querySql);
     if (classified.kind === 'DDL' || classified.kind === 'UNKNOWN') {
       throw new UnsafeQueryError(
         'Cannot simulate index for unsupported or DDL statement.',
       );
     }
 
-    const validatedIndexSql = validateSafeCreateIndexSql(input.indexSql);
+    const validatedIndexSql = adapter.validateSafeCreateIndexSql(input.indexSql);
     const parameters = input.parameters ?? [];
     if (classified.parameterIndices.length > 0) {
       const highestIndex =
@@ -45,8 +64,6 @@ export class SimulateIndexService implements SimulateIndexUseCase {
       }
     }
 
-    const connectionString =
-      await this.deps.connectionConfig.getConnectionString();
     if (!connectionString) {
       throw new MissingConnectionError();
     }
@@ -72,7 +89,7 @@ export class SimulateIndexService implements SimulateIndexUseCase {
       };
     }
 
-    const simulatedPlan = parsePostgreSqlPlan(outcome.rawPlan, 'estimate');
+    const simulatedPlan = adapter.parsePlan(outcome.rawPlan, 'estimate');
     const simulatedCost = simulatedPlan.root.totalCost;
     const costDeltaPercent =
       input.baselineCost > 0

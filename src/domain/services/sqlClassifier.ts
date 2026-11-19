@@ -3,6 +3,7 @@ import {
   MultipleStatementsError,
   UnsafeQueryError,
 } from '../errors/domainErrors.js';
+import type { DatabaseEngine } from '../models/databaseEngine.js';
 import type { ClassifiedSql, SqlStatementKind } from '../models/queryRequest.js';
 
 interface SqlToken {
@@ -13,7 +14,14 @@ interface SqlToken {
   readonly paramIndex?: number | undefined;
 }
 
-const WRITE_KEYWORDS = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE']);
+const PG_WRITE_KEYWORDS = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE']);
+const MULTI_WRITE_KEYWORDS = new Set([
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'MERGE',
+  'REPLACE',
+]);
 const READ_KEYWORDS = new Set(['SELECT', 'WITH', 'VALUES', 'TABLE']);
 const DDL_KEYWORDS = new Set([
   'CREATE',
@@ -28,6 +36,12 @@ const DDL_KEYWORDS = new Set([
   'COMMENT',
   'LOCK',
   'COPY',
+  'ATTACH',
+  'DETACH',
+  'PRAGMA',
+  'RENAME',
+  'OPTIMIZE',
+  'ANALYZE',
 ]);
 const CLAUSE_FRAGMENT_KEYWORDS = new Set([
   'FROM',
@@ -54,15 +68,19 @@ const CLAUSE_FRAGMENT_KEYWORDS = new Set([
 ]);
 
 /**
- * Single-pass PostgreSQL lexical tokenizer:
- * - recognizes line comments (--) and nested block comments (/* ... *\/)
- * - preserves single-quoted, double-quoted, and dollar-quoted literals
- * - identifies top-level semicolons and positional parameters ($1, $2, ...)
+ * Single-pass SQL lexical tokenizer parameterized by engine dialect:
+ * - recognizes line comments (-- and MySQL #) and block comments (/* ... *\/)
+ * - preserves single-quoted, double-quoted, backtick-quoted, and PG dollar-quoted literals
+ * - identifies top-level semicolons and positional parameters ($1..$N, ?, ?N)
  */
-function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
+function tokenizeSql(
+  rawSql: string,
+  engine: DatabaseEngine = 'postgresql',
+): readonly SqlToken[] {
   const tokens: SqlToken[] = [];
   let i = 0;
   const len = rawSql.length;
+  let anonymousParamCounter = 0;
 
   while (i < len) {
     const ch = rawSql[i]!;
@@ -83,10 +101,10 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
       continue;
     }
 
-    // Line comment: -- ...
-    if (ch === '-' && next === '-') {
+    // Line comment: -- ... (or MySQL # ...)
+    if ((ch === '-' && next === '-') || (engine === 'mysql' && ch === '#')) {
       const start = i;
-      i += 2;
+      i += ch === '#' ? 1 : 2;
       while (i < len && rawSql[i] !== '\n') {
         i++;
       }
@@ -99,13 +117,17 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
       continue;
     }
 
-    // Nested block comment: /* ... */
+    // Block comment: /* ... */ (nested in PostgreSQL)
     if (ch === '/' && next === '*') {
       const start = i;
       let depth = 1;
       i += 2;
       while (i < len && depth > 0) {
-        if (rawSql[i] === '/' && rawSql[i + 1] === '*') {
+        if (
+          engine === 'postgresql' &&
+          rawSql[i] === '/' &&
+          rawSql[i + 1] === '*'
+        ) {
           depth++;
           i += 2;
         } else if (rawSql[i] === '*' && rawSql[i + 1] === '/') {
@@ -136,16 +158,18 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
       continue;
     }
 
-    // Single-quoted string literal (E'...' backslash escapes and '' escapes)
+    // Single-quoted string literal (PG E'...' / MySQL backslash escapes and '' escapes)
     if (ch === "'") {
       const start = i;
-      const isEscapedString =
-        i > 0 &&
-        (rawSql[i - 1] === 'e' || rawSql[i - 1] === 'E') &&
-        (i === 1 || !/[a-zA-Z0-9_$]/.test(rawSql[i - 2]!));
+      const allowBackslashEscape =
+        engine === 'mysql' ||
+        (engine === 'postgresql' &&
+          i > 0 &&
+          (rawSql[i - 1] === 'e' || rawSql[i - 1] === 'E') &&
+          (i === 1 || !/[a-zA-Z0-9_$]/.test(rawSql[i - 2]!)));
       i++;
       while (i < len) {
-        if (isEscapedString && rawSql[i] === '\\') {
+        if (allowBackslashEscape && rawSql[i] === '\\') {
           i += 2;
           continue;
         }
@@ -164,11 +188,15 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
       continue;
     }
 
-    // Double-quoted identifier
+    // Double-quoted identifier (or MySQL double-quoted string)
     if (ch === '"') {
       const start = i;
       i++;
       while (i < len) {
+        if (engine === 'mysql' && rawSql[i] === '\\') {
+          i += 2;
+          continue;
+        }
         if (rawSql[i] === '"') {
           if (rawSql[i + 1] === '"') {
             i += 2;
@@ -184,8 +212,74 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
       continue;
     }
 
+    // Backtick-quoted identifier (MySQL & SQLite)
+    if (ch === '`' && (engine === 'mysql' || engine === 'sqlite')) {
+      const start = i;
+      i++;
+      while (i < len) {
+        if (rawSql[i] === '`') {
+          if (rawSql[i + 1] === '`') {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      const ident = rawSql.slice(start, i);
+      tokens.push({ kind: 'token', start, end: i, normalized: ident });
+      continue;
+    }
+
+    // SQLite [bracket] identifier
+    if (ch === '[' && engine === 'sqlite') {
+      const closeIdx = rawSql.indexOf(']', i + 1);
+      if (closeIdx !== -1) {
+        const ident = rawSql.slice(i, closeIdx + 1);
+        tokens.push({
+          kind: 'token',
+          start: i,
+          end: closeIdx + 1,
+          normalized: ident,
+        });
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // MySQL & SQLite `?` / `?NNN` positional parameter placeholders
+    if (ch === '?' && (engine === 'mysql' || engine === 'sqlite')) {
+      if (engine === 'sqlite') {
+        const numMatch = /^\?([1-9][0-9]*)/.exec(rawSql.slice(i));
+        if (numMatch) {
+          const paramNum = Number(numMatch[1]);
+          anonymousParamCounter = Math.max(anonymousParamCounter, paramNum);
+          tokens.push({
+            kind: 'token',
+            start: i,
+            end: i + numMatch[0].length,
+            normalized: numMatch[0],
+            paramIndex: paramNum,
+          });
+          i += numMatch[0].length;
+          continue;
+        }
+      }
+      anonymousParamCounter++;
+      tokens.push({
+        kind: 'token',
+        start: i,
+        end: i + 1,
+        normalized: '?',
+        paramIndex: anonymousParamCounter,
+      });
+      i++;
+      continue;
+    }
+
     // Dollar-quoted literal ($tag$...$tag$) OR positional parameter ($1, $2...)
-    if (ch === '$') {
+    if (ch === '$' && (engine === 'postgresql' || engine === 'sqlite')) {
       const paramMatch = /^\$([1-9][0-9]*)(?![a-zA-Z0-9_$])/.exec(
         rawSql.slice(i),
       );
@@ -207,15 +301,19 @@ function tokenizePostgreSql(rawSql: string): readonly SqlToken[] {
         continue;
       }
 
-      const tagMatch = /^(\$[a-zA-Z_]?[a-zA-Z0-9_]*\$)/.exec(rawSql.slice(i));
-      if (tagMatch) {
-        const tag = tagMatch[1]!;
-        const closeIndex = rawSql.indexOf(tag, i + tag.length);
-        const end = closeIndex === -1 ? len : closeIndex + tag.length;
-        const literal = rawSql.slice(i, end);
-        tokens.push({ kind: 'token', start: i, end, normalized: literal });
-        i = end;
-        continue;
+      if (engine === 'postgresql') {
+        const tagMatch = /^(\$[a-zA-Z_]?[a-zA-Z0-9_]*\$)/.exec(
+          rawSql.slice(i),
+        );
+        if (tagMatch) {
+          const tag = tagMatch[1]!;
+          const closeIndex = rawSql.indexOf(tag, i + tag.length);
+          const end = closeIndex === -1 ? len : closeIndex + tag.length;
+          const literal = rawSql.slice(i, end);
+          tokens.push({ kind: 'token', start: i, end, normalized: literal });
+          i = end;
+          continue;
+        }
       }
     }
 
@@ -257,7 +355,10 @@ function firstTopLevelKeyword(words: readonly string[]): string | undefined {
   return words[idx];
 }
 
-function determineStatementKind(words: readonly string[]): SqlStatementKind {
+function determineStatementKind(
+  words: readonly string[],
+  engine: DatabaseEngine = 'postgresql',
+): SqlStatementKind {
   let firstKeywordIndex = 0;
   while (
     firstKeywordIndex < words.length &&
@@ -279,14 +380,17 @@ function determineStatementKind(words: readonly string[]): SqlStatementKind {
     return 'DDL';
   }
 
-  if (WRITE_KEYWORDS.has(first)) {
+  const writeKeywords =
+    engine === 'postgresql' ? PG_WRITE_KEYWORDS : MULTI_WRITE_KEYWORDS;
+
+  if (writeKeywords.has(first)) {
     return 'WRITE';
   }
 
   if (first === 'WITH') {
     for (let idx = firstKeywordIndex + 1; idx < words.length; idx++) {
       const word = words[idx];
-      if (word && WRITE_KEYWORDS.has(word)) {
+      if (word && writeKeywords.has(word)) {
         return 'WRITE';
       }
     }
@@ -300,12 +404,15 @@ function determineStatementKind(words: readonly string[]): SqlStatementKind {
   return 'UNKNOWN';
 }
 
-export function classifySqlStatement(rawSql: string): ClassifiedSql {
+export function classifySqlStatement(
+  rawSql: string,
+  engine: DatabaseEngine = 'postgresql',
+): ClassifiedSql {
   if (!rawSql || !rawSql.trim()) {
     throw new EmptyQueryError();
   }
 
-  const lexed = tokenizePostgreSql(rawSql);
+  const lexed = tokenizeSql(rawSql, engine);
   const words: string[] = [];
   const parameterSet = new Set<number>();
   const strippedParts: string[] = [];
@@ -343,10 +450,16 @@ export function classifySqlStatement(rawSql: string): ClassifiedSql {
     throw new EmptyQueryError();
   }
 
-  const kind = determineStatementKind(words);
+  const kind = determineStatementKind(words, engine);
   if (kind === 'EXPLAIN') {
+    const explainSyntax =
+      engine === 'sqlite'
+        ? 'EXPLAIN QUERY PLAN'
+        : engine === 'mysql'
+          ? 'EXPLAIN ANALYZE / FORMAT=JSON'
+          : 'EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)';
     throw new UnsafeQueryError(
-      'Remove the leading EXPLAIN keyword — QueryAutopsy adds EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) automatically.',
+      `Remove the leading EXPLAIN keyword — QueryAutopsy adds ${explainSyntax} automatically.`,
     );
   }
 
@@ -373,13 +486,14 @@ export interface SqlStatementSpan {
 }
 
 /**
- * Splits a PostgreSQL script into trimmed top-level statement spans (ignoring semicolons
+ * Splits a SQL script into trimmed top-level statement spans (ignoring semicolons
  * inside comments, quotes, and dollar-quoted literals).
  */
 export function extractSqlStatementSpans(
   rawSql: string,
+  engine: DatabaseEngine = 'postgresql',
 ): readonly SqlStatementSpan[] {
-  const lexed = tokenizePostgreSql(rawSql);
+  const lexed = tokenizeSql(rawSql, engine);
   const rawSpans: Array<{ readonly start: number; readonly end: number }> = [];
   let currentStart: number | undefined;
 
@@ -422,8 +536,9 @@ export function extractSqlStatementSpans(
 export function extractSqlStatementSpanAtOffset(
   rawSql: string,
   offset: number,
+  engine: DatabaseEngine = 'postgresql',
 ): SqlStatementSpan | undefined {
-  const spans = extractSqlStatementSpans(rawSql);
+  const spans = extractSqlStatementSpans(rawSql, engine);
   return spans.find((span) => span.start <= offset && offset <= span.end);
 }
 
@@ -433,28 +548,43 @@ export function extractSqlStatementSpanAtOffset(
 export function extractSqlStatementAtOffset(
   rawSql: string,
   offset: number,
+  engine: DatabaseEngine = 'postgresql',
 ): string | undefined {
-  return extractSqlStatementSpanAtOffset(rawSql, offset)?.sql;
+  return extractSqlStatementSpanAtOffset(rawSql, offset, engine)?.sql;
 }
 
-const INDEX_COLUMN_ITEM =
-  '(?:[a-zA-Z_][a-zA-Z0-9_$]*|[a-zA-Z_][a-zA-Z0-9_]*\\(\\s*[a-zA-Z_][a-zA-Z0-9_$]*\\s*\\))(?:\\s+(?:ASC|DESC))?(?:\\s+NULLS\\s+(?:FIRST|LAST))?';
+const IDENT = '(?:`?[a-zA-Z_][a-zA-Z0-9_$]*`?)';
 
-const SAFE_CREATE_INDEX_REGEX = new RegExp(
+const INDEX_COLUMN_ITEM = `(?:${IDENT}|[a-zA-Z_][a-zA-Z0-9_]*\\(\\s*${IDENT}\\s*\\))(?:\\s+(?:ASC|DESC))?(?:\\s+NULLS\\s+(?:FIRST|LAST))?`;
+
+const SAFE_PG_CREATE_INDEX_REGEX = new RegExp(
   `^CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+CONCURRENTLY\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[a-zA-Z_][a-zA-Z0-9_$]*\\s+ON\\s+(?:[a-zA-Z_][a-zA-Z0-9_$]*\\.)?[a-zA-Z_][a-zA-Z0-9_$]*\\s*\\(\\s*${INDEX_COLUMN_ITEM}(?:\\s*,\\s*${INDEX_COLUMN_ITEM})*\\s*\\)$`,
   'i',
 );
 
+const SAFE_MYSQL_CREATE_INDEX_REGEX = new RegExp(
+  `^CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+${IDENT}\\s+ON\\s+(?:${IDENT}\\.)?${IDENT}\\s*\\(\\s*${INDEX_COLUMN_ITEM}(?:\\s*,\\s*${INDEX_COLUMN_ITEM})*\\s*\\)$`,
+  'i',
+);
+
+const SAFE_SQLITE_CREATE_INDEX_REGEX = new RegExp(
+  `^CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:${IDENT}\\.)?${IDENT}\\s+ON\\s+${IDENT}\\s*\\(\\s*${INDEX_COLUMN_ITEM}(?:\\s*,\\s*${INDEX_COLUMN_ITEM})*\\s*\\)$`,
+  'i',
+);
+
 /**
- * Validates that a SQL string is strictly a single safe `CREATE INDEX CONCURRENTLY` statement
+ * Validates that a SQL string is strictly a single safe index creation statement
  * before allowing explicit user-confirmed index creation.
  */
-export function validateSafeCreateIndexSql(rawSql: string): string {
+export function validateSafeCreateIndexSql(
+  rawSql: string,
+  engine: DatabaseEngine = 'postgresql',
+): string {
   if (!rawSql || !rawSql.trim()) {
     throw new EmptyQueryError();
   }
 
-  const lexed = tokenizePostgreSql(rawSql);
+  const lexed = tokenizeSql(rawSql, engine);
   const parts: string[] = [];
   let terminated = false;
   let hasTokens = false;
@@ -481,9 +611,20 @@ export function validateSafeCreateIndexSql(rawSql: string): string {
   }
 
   const normalized = parts.join('').replace(/\s+/g, ' ').trim();
-  if (!normalized || !SAFE_CREATE_INDEX_REGEX.test(normalized)) {
+  const pattern =
+    engine === 'mysql'
+      ? SAFE_MYSQL_CREATE_INDEX_REGEX
+      : engine === 'sqlite'
+        ? SAFE_SQLITE_CREATE_INDEX_REGEX
+        : SAFE_PG_CREATE_INDEX_REGEX;
+
+  if (!normalized || !pattern.test(normalized)) {
+    const expectedLabel =
+      engine === 'postgresql'
+        ? 'CREATE INDEX CONCURRENTLY'
+        : 'CREATE INDEX';
     throw new UnsafeQueryError(
-      'Only single-statement CREATE INDEX CONCURRENTLY statements can be applied automatically.',
+      `Only single-statement ${expectedLabel} statements can be applied automatically.`,
     );
   }
 

@@ -185,4 +185,35 @@ describe('InspectQueryService (Application Use Case)', () => {
     ).rejects.toThrow(/Read-Only locked/);
     expect(queryExecutor.executeExplain).not.toHaveBeenCalled();
   });
+
+  it('dispatches to MySQL engine adapter when active profile engine is mysql', async () => {
+    const mysqlTree = [
+      '-> Sort: orders.created_at DESC  (cost=150.0 rows=2000) (actual time=8.5..9.1 rows=200 loops=1)',
+      '    -> Table scan on orders  (cost=120.0 rows=2000) (actual time=0.1..6.2 rows=2000 loops=1)',
+    ].join('\n');
+
+    const { service, queryExecutor } = createMocks({
+      connectionString: 'mysql://root:pass@127.0.0.1:3306/app',
+      activeProfile: {
+        id: 'mysql-local',
+        name: 'MySQL Local',
+        engine: 'mysql',
+        environment: 'local',
+        readOnlyLocked: false,
+        displayTarget: '127.0.0.1:3306/app',
+      },
+    });
+    vi.mocked(queryExecutor.executeExplain).mockResolvedValueOnce(mysqlTree);
+
+    const report = await service.execute({
+      rawSql: 'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
+      mode: 'analyze',
+      parameters: [42],
+    });
+
+    expect(report.engine).toBe('mysql');
+    expect(report.diagnostics.map((d) => d.ruleId)).toEqual(
+      expect.arrayContaining(['MYSQL_FULL_TABLE_SCAN', 'MYSQL_USING_FILESORT']),
+    );
+  });
 });

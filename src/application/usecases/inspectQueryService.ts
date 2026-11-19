@@ -3,6 +3,12 @@ import {
   MissingParametersError,
   UnsafeQueryError,
 } from '../../domain/errors/domainErrors.js';
+import { getEngineAdapter } from '../../domain/engines/engineRegistry.js';
+import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import {
+  detectDatabaseEngineFromUri,
+  formatEngineLabel,
+} from '../../domain/models/databaseEngine.js';
 import type { InspectionReport } from '../../domain/models/diagnostic.js';
 import type { InspectQueryInput } from '../../domain/models/queryRequest.js';
 import type { InspectQueryUseCase } from '../../domain/ports/inbound/inspectQueryUseCase.js';
@@ -10,9 +16,6 @@ import type { ConnectionConfigPort } from '../../domain/ports/outbound/connectio
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
 import type { QueryExecutorPort } from '../../domain/ports/outbound/queryExecutorPort.js';
 import type { ReportPresenterPort } from '../../domain/ports/outbound/reportPresenterPort.js';
-import { analyzeExecutionPlan } from '../../domain/services/diagnosticEngine.js';
-import { parsePostgreSqlPlan } from '../../domain/services/planParser.js';
-import { classifySqlStatement } from '../../domain/services/sqlClassifier.js';
 
 export interface InspectQueryDependencies {
   readonly connectionConfig: ConnectionConfigPort;
@@ -25,10 +28,20 @@ export class InspectQueryService implements InspectQueryUseCase {
   constructor(private readonly deps: InspectQueryDependencies) {}
 
   async execute(input: InspectQueryInput): Promise<InspectionReport> {
-    const classified = classifySqlStatement(input.rawSql);
     const settings = this.deps.connectionConfig.getRuntimeSettings();
-    const activeProfile =
-      await this.deps.connectionConfig.getActiveProfile();
+    const [activeProfile, connectionString] = await Promise.all([
+      this.deps.connectionConfig.getActiveProfile(),
+      this.deps.connectionConfig.getConnectionString(),
+    ]);
+
+    const engine = activeProfile
+      ? resolveProfileEngine(activeProfile)
+      : connectionString
+        ? detectDatabaseEngineFromUri(connectionString)
+        : 'postgresql';
+    const adapter = getEngineAdapter(engine);
+
+    const classified = adapter.classifySql(input.rawSql);
     const isReadOnlyLocked = activeProfile?.readOnlyLocked ?? false;
     const effectiveAllowWriteAnalyze =
       settings.allowWriteAnalyze && !isReadOnlyLocked;
@@ -41,7 +54,7 @@ export class InspectQueryService implements InspectQueryUseCase {
 
     if (classified.kind === 'UNKNOWN') {
       throw new UnsafeQueryError(
-        'Unsupported SQL statement. QueryAutopsy supports SELECT, WITH, VALUES, TABLE, and DML (INSERT/UPDATE/DELETE/MERGE).',
+        'Unsupported SQL statement. QueryAutopsy supports SELECT, WITH, VALUES, and DML (INSERT/UPDATE/DELETE).',
       );
     }
 
@@ -69,23 +82,26 @@ export class InspectQueryService implements InspectQueryUseCase {
       }
     }
 
-    const connectionString =
-      await this.deps.connectionConfig.getConnectionString();
     if (!connectionString) {
       throw new MissingConnectionError();
     }
 
     const startedAt = Date.now();
-    this.deps.logger.info('Executing PostgreSQL EXPLAIN inspection', {
-      mode: input.mode,
-      statementKind: classified.kind,
-      parameterCount: classified.parameterIndices.length,
-      timeoutMs: settings.statementTimeoutMs,
-    });
+    this.deps.logger.info(
+      `Executing ${formatEngineLabel(engine)} EXPLAIN inspection`,
+      {
+        engine,
+        mode: input.mode,
+        statementKind: classified.kind,
+        parameterCount: classified.parameterIndices.length,
+        timeoutMs: settings.statementTimeoutMs,
+      },
+    );
 
     const rawPlan = await this.deps.queryExecutor.executeExplain(
       connectionString,
       {
+        engine,
         sql: classified.normalizedSql,
         kind: classified.kind,
         mode: input.mode,
@@ -95,12 +111,14 @@ export class InspectQueryService implements InspectQueryUseCase {
       },
     );
 
-    const plan = parsePostgreSqlPlan(rawPlan, input.mode);
-    const diagnostics = analyzeExecutionPlan(plan, {
+    const plan = adapter.parsePlan(rawPlan, input.mode);
+    const diagnostics = adapter.analyzePlan(plan, {
       seqScanRowThreshold: settings.seqScanRowThreshold,
+      sql: classified.normalizedSql,
     });
 
     const report: InspectionReport = {
+      engine,
       sql: classified.normalizedSql,
       statementKind: classified.kind,
       mode: input.mode,
@@ -114,6 +132,7 @@ export class InspectQueryService implements InspectQueryUseCase {
     await this.deps.reportPresenter.present(report);
 
     this.deps.logger.info('Inspection completed', {
+      engine,
       durationMs: Date.now() - startedAt,
       diagnosticsCount: diagnostics.length,
       executionTimeMs: plan.executionTimeMs,

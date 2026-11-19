@@ -146,15 +146,31 @@ function subtreeHasIssue(
   return node.children.some((child) => subtreeHasIssue(child, diagMap));
 }
 
+function formatReportEngineLabel(report: InspectionReport): string {
+  switch (report.engine) {
+    case 'mysql':
+      return 'MySQL';
+    case 'sqlite':
+      return 'SQLite';
+    default:
+      return 'PostgreSQL';
+  }
+}
+
 function renderMeta(report: InspectionReport): void {
   const metaContainer = getEl<HTMLDivElement>('report-meta');
+  const enginePill = el(
+    'span',
+    'pill pill-neutral',
+    formatReportEngineLabel(report),
+  );
   const modePill = el(
     'span',
     `pill ${report.mode === 'analyze' ? 'pill-accent' : 'pill-neutral'}`,
     report.mode === 'analyze' ? 'EXPLAIN ANALYZE' : 'ESTIMATE ONLY',
   );
   const kindPill = el('span', 'pill pill-neutral', report.statementKind);
-  const pills: HTMLElement[] = [modePill, kindPill];
+  const pills: HTMLElement[] = [enginePill, modePill, kindPill];
 
   if (report.profileName) {
     const profilePill = el(
@@ -437,21 +453,25 @@ function renderDiagnostics(payload: WebviewRenderPayload): void {
         announceStatus(`Copied suggested index SQL for ${tableName}`);
       });
 
-      const simBtn = el('button', 'btn-secondary', 'Simulate (HypoPG)');
-      simBtn.type = 'button';
-      simBtn.setAttribute(
-        'aria-label',
-        `Simulate index impact for ${tableName} using HypoPG`,
-      );
-      simBtn.addEventListener('click', () => {
-        vscodeApi.postMessage({
-          type: 'SIMULATE_INDEX',
-          payload: { querySql: report.sql, indexSql: sqlToUse },
-        });
-        announceStatus(`Running HypoPG What-If simulation for ${tableName}`);
-      });
+      actionRow.append(copyBtn);
 
-      actionRow.append(copyBtn, simBtn);
+      if (!report.engine || report.engine === 'postgresql') {
+        const simBtn = el('button', 'btn-secondary', 'Simulate (HypoPG)');
+        simBtn.type = 'button';
+        simBtn.setAttribute(
+          'aria-label',
+          `Simulate index impact for ${tableName} using HypoPG`,
+        );
+        simBtn.addEventListener('click', () => {
+          vscodeApi.postMessage({
+            type: 'SIMULATE_INDEX',
+            payload: { querySql: report.sql, indexSql: sqlToUse },
+          });
+          announceStatus(`Running HypoPG What-If simulation for ${tableName}`);
+        });
+        actionRow.append(simBtn);
+      }
+
       sqlBox.append(pre, actionRow);
 
       const cachedSim = simulationResultsByIndexSql.get(sqlToUse);

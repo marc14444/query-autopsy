@@ -1,3 +1,4 @@
+import type { DatabaseEngine } from './databaseEngine.js';
 import type { ExplainMode } from './queryRequest.js';
 
 export interface BufferMetrics {
@@ -56,6 +57,7 @@ export interface PlanNode {
 }
 
 export interface ExecutionPlan {
+  readonly engine?: DatabaseEngine | undefined;
   readonly mode: ExplainMode;
   readonly root: PlanNode;
   readonly planningTimeMs?: number | undefined;
@@ -63,4 +65,57 @@ export interface ExecutionPlan {
   readonly planningBuffers?: BufferMetrics | undefined;
   readonly totalBuffers: BufferMetrics;
   readonly rawJson: unknown;
+}
+
+export const EMPTY_BUFFERS: BufferMetrics = {
+  sharedHitBlocks: 0,
+  sharedReadBlocks: 0,
+  sharedDirtiedBlocks: 0,
+  sharedWrittenBlocks: 0,
+  localHitBlocks: 0,
+  localReadBlocks: 0,
+  tempReadBlocks: 0,
+  tempWrittenBlocks: 0,
+  cacheHitRatio: null,
+};
+
+/**
+ * Computes inclusive/exclusive node timings bottom-up and share percentages top-down.
+ */
+export function finalizeNodeTimingMetrics(
+  node: PlanNode,
+  denominatorMs: number | undefined,
+): PlanNode {
+  const children = node.children.map((child) =>
+    finalizeNodeTimingMetrics(child, denominatorMs),
+  );
+
+  let inclusiveTimeMs = node.inclusiveTimeMs;
+  if (inclusiveTimeMs === undefined && node.actualTotalTimeMs !== undefined) {
+    inclusiveTimeMs = node.actualTotalTimeMs * (node.actualLoops ?? 1);
+  }
+
+  let exclusiveTimeMs = node.exclusiveTimeMs;
+  if (exclusiveTimeMs === undefined && inclusiveTimeMs !== undefined) {
+    const childrenInclusive = children.reduce(
+      (sum, child) => sum + (child.inclusiveTimeMs ?? 0),
+      0,
+    );
+    exclusiveTimeMs = Math.max(0, inclusiveTimeMs - childrenInclusive);
+  }
+
+  const exclusiveTimePercent =
+    exclusiveTimeMs !== undefined &&
+    denominatorMs !== undefined &&
+    denominatorMs > 0
+      ? Math.min(100, (exclusiveTimeMs / denominatorMs) * 100)
+      : node.exclusiveTimePercent;
+
+  return {
+    ...node,
+    inclusiveTimeMs,
+    exclusiveTimeMs,
+    exclusiveTimePercent,
+    children,
+  };
 }

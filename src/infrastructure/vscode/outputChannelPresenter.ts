@@ -1,4 +1,5 @@
 import type * as vscode from 'vscode';
+import { formatEngineLabel } from '../../domain/models/databaseEngine.js';
 import type {
   DiagnosticFinding,
   DiagnosticSeverity,
@@ -32,8 +33,9 @@ export class OutputChannelReportPresenter implements ReportPresenterPort {
     this.channel.appendLine(
       '========================================================================',
     );
+    const engineLabel = formatEngineLabel(report.engine ?? 'postgresql');
     this.channel.appendLine(
-      ` QueryAutopsy Report | Mode: ${report.mode.toUpperCase()} | Type: ${report.statementKind} | ${report.inspectedAtIso}`,
+      ` QueryAutopsy Report (${engineLabel}) | Mode: ${report.mode.toUpperCase()} | Type: ${report.statementKind} | ${report.inspectedAtIso}`,
     );
     this.channel.appendLine(
       '========================================================================',

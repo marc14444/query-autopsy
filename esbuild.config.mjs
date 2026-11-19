@@ -1,3 +1,5 @@
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import * as esbuild from 'esbuild';
 
 const production = process.argv.includes('--production');
@@ -25,7 +27,17 @@ const esbuildProblemMatcherPlugin = {
   },
 };
 
+async function copySqlJsWasm() {
+  const targetPath = join('dist', 'sql-wasm.wasm');
+  mkdirSync(dirname(targetPath), { recursive: true });
+  copyFileSync(
+    join('node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'),
+    targetPath,
+  );
+}
+
 async function main() {
+  await copySqlJsWasm();
   const extensionCtx = await esbuild.context({
     entryPoints: ['src/extension.ts'],
     bundle: true,

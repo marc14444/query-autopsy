@@ -1,3 +1,4 @@
+import type { DatabaseEngine } from './databaseEngine.js';
 import type { ExecutionPlan } from './executionPlan.js';
 import type { ExplainMode, SqlStatementKind } from './queryRequest.js';
 
@@ -12,7 +13,12 @@ export type DiagnosticRuleId =
   | 'EXTERNAL_DISK_SPILL'
   | 'PLANNER_ROW_MISESTIMATE'
   | 'LOW_CACHE_HIT_RATIO'
-  | 'NESTED_LOOP_HIGH_LOOPS';
+  | 'NESTED_LOOP_HIGH_LOOPS'
+  | 'MYSQL_FULL_TABLE_SCAN'
+  | 'MYSQL_USING_FILESORT'
+  | 'MYSQL_USING_TEMPORARY'
+  | 'SQLITE_FULL_TABLE_SCAN'
+  | 'SQLITE_TEMP_BTREE_SORT';
 
 export interface IndexSuggestion {
   readonly table: string;
@@ -33,6 +39,7 @@ export interface DiagnosticFinding {
 }
 
 export interface InspectionReport {
+  readonly engine?: DatabaseEngine | undefined;
   readonly sql: string;
   readonly statementKind: SqlStatementKind;
   readonly mode: ExplainMode;

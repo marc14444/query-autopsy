@@ -75,7 +75,7 @@ export class SqlCodeLensProvider
         }),
         new vscode.CodeLens(anchorRange, {
           title: '$(eye) Estimate Plan',
-          tooltip: 'Compute estimated PostgreSQL EXPLAIN plan without executing the query',
+          tooltip: 'Compute estimated EXPLAIN plan without executing the query',
           command: INSPECT_CODELENS_COMMAND,
           arguments: [
             { ...baseArgs, mode: 'estimate' } satisfies CodeLensInspectArgs,

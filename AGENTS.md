@@ -56,7 +56,12 @@ Read the relevant specification before modifying or extending any subsystem:
   - `query-autopsy-milestone-2-webview`
   - `query-autopsy-pg-playground`
 
-## 5. Mandatory Verification Before Completion
+## 5. Git Workflow & Automated Versioning
+
+- **Never commit or push directly to `main`.** Always create a branch matching `<type>/<kebab-case-slug>` (`feat/...`, `fix/...`, `chore/...`, `docs/...`, `refactor/...`, `test/...`, `ci/...`, `perf/...`, `hotfix/...`) and open a Pull Request into `main`.
+- **Never push manual release tags**; merging a version-bumped PR (`package.json` + `CHANGELOG.md`) into `main` triggers `.github/workflows/release.yml` automatically.
+
+## 6. Mandatory Verification Before Completion
 
 After any code change, run and verify:
 ```bash

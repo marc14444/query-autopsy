@@ -60,7 +60,37 @@ export function explainPlanNode(node: PlanNode, mode: ExplainMode): string {
     case 'GroupAggregate':
     case 'HashAggregate':
       return `Grouped and aggregated input rows down to ${rows.toLocaleString('en-US')} result rows.`;
+    case 'Table Scan (ALL)':
+      return `Scanned all rows sequentially in MySQL table ${rel} without an index (${rows.toLocaleString('en-US')} rows).`;
+    case 'Filesort': {
+      const keys = node.sort?.sortKey?.join(', ') ?? 'ORDER BY / GROUP BY key';
+      return `Sorted ${rows.toLocaleString('en-US')} rows in MySQL using filesort on (${keys}).`;
+    }
+    case 'Temporary Table':
+      return `Materialized intermediate results into an internal MySQL temporary table before returning ${rows.toLocaleString('en-US')} rows.`;
+    case 'Filter':
+      return `Applied filter predicate ${node.filter ?? ''} retaining ${rows.toLocaleString('en-US')} matching rows.`;
+    case 'Index Lookup':
+    case 'Covering Index Lookup':
+      return `Looked up ${rows.toLocaleString('en-US')} rows in MySQL table ${rel} using index ${node.indexName ?? ''}${node.nodeType.startsWith('Covering') ? ' (covered directly by index)' : ''}.`;
+    case 'Index Range Scan':
+      return `Scanned an index range on ${node.indexName ?? 'index'} over ${rel} (${rows.toLocaleString('en-US')} rows).`;
+    case 'Full Index Scan':
+    case 'Covering Index Scan':
+      return `Scanned all entries of index ${node.indexName ?? ''} on ${rel} (${rows.toLocaleString('en-US')} rows).`;
+    case 'Full Table Scan':
+      return `Scanned every row sequentially in SQLite table ${rel} without an index.`;
+    case 'Index Search':
+    case 'Covering Index Search':
+      return `Searched SQLite index ${node.indexName ?? ''} on ${rel}${node.indexCond ? ` (${node.indexCond})` : ''}${node.nodeType.startsWith('Covering') ? ' without reading main table B-Tree' : ''}.`;
+    case 'Primary Key Lookup':
+      return `Performed fast SQLite rowid / INTEGER PRIMARY KEY lookup on ${rel}.`;
+    case 'Auto Transient Index':
+      return `SQLite constructed a temporary in-memory index on ${rel} at runtime because no permanent index existed.`;
     default:
+      if (node.nodeType.startsWith('Temp B-Tree')) {
+        return `SQLite built a temporary B-Tree in memory to satisfy ${node.nodeType.replace(/^Temp B-Tree\s*/i, '')} because no matching index order was available.`;
+      }
       if (node.subplanName) {
         return `Executed ${node.subplanName} (${node.nodeType}) ${loops.toLocaleString('en-US')} time(s) producing ${rows.toLocaleString('en-US')} rows.`;
       }

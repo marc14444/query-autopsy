@@ -1,26 +1,61 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { sanitizeConnectionDisplayTarget } from '../../domain/models/connectionProfile.js';
 import {
   type DiscoveredConnectionCandidate,
-  extractPostgresUrisFromComposeContent,
-  extractPostgresUrisFromEnvContent,
+  extractDatabaseUrisFromComposeContent,
+  extractDatabaseUrisFromEnvContent,
   parseEnvKeyValueMap,
 } from '../../domain/services/envDiscovery.js';
 
 const ENV_GLOB = '**/{.env,.env.local,.env.development,.env.dev}';
 const COMPOSE_GLOB =
   '**/{docker-compose.yml,docker-compose.yaml,compose.yml,compose.yaml}';
+const SQLITE_GLOB = '**/*.{sqlite,sqlite3,db}';
 const EXCLUDE_GLOB = '**/{node_modules,.git,dist}/**';
 
-export async function discoverWorkspacePostgresConnections(): Promise<
+function absolutizeEnvSqliteCandidate(
+  candidate: DiscoveredConnectionCandidate,
+  envFileFsPath: string,
+): DiscoveredConnectionCandidate {
+  if (candidate.engine !== 'sqlite') {
+    return candidate;
+  }
+
+  let rawPath = candidate.uri;
+  if (/^file:/i.test(rawPath)) {
+    rawPath = rawPath.slice('file:'.length);
+  } else if (/^sqlite:\/\//i.test(rawPath)) {
+    rawPath = rawPath.slice('sqlite://'.length);
+  } else if (/^sqlite:/i.test(rawPath)) {
+    rawPath = rawPath.slice('sqlite:'.length);
+  }
+
+  rawPath = (rawPath.split('?')[0] ?? rawPath).trim();
+  if (!rawPath || rawPath === ':memory:' || path.isAbsolute(rawPath)) {
+    return candidate;
+  }
+
+  const resolvedPath = path.resolve(path.dirname(envFileFsPath), rawPath);
+  const absUri = `sqlite://${resolvedPath}`;
+  return {
+    ...candidate,
+    uri: absUri,
+    displayTarget: sanitizeConnectionDisplayTarget(absUri, 'sqlite'),
+  };
+}
+
+export async function discoverWorkspaceDatabaseConnections(): Promise<
   readonly DiscoveredConnectionCandidate[]
 > {
   if (!vscode.workspace.workspaceFolders?.length) {
     return [];
   }
 
-  const [envFiles, composeFiles] = await Promise.all([
+  const [envFiles, composeFiles, sqliteFiles] = await Promise.all([
     vscode.workspace.findFiles(ENV_GLOB, EXCLUDE_GLOB, 8),
     vscode.workspace.findFiles(COMPOSE_GLOB, EXCLUDE_GLOB, 6),
+    vscode.workspace.findFiles(SQLITE_GLOB, EXCLUDE_GLOB, 8),
   ]);
 
   const decoder = new TextDecoder('utf-8');
@@ -45,7 +80,10 @@ export async function discoverWorkspacePostgresConnections(): Promise<
         combinedEnvMap.set(k, v);
       }
       const relPath = vscode.workspace.asRelativePath(uri, false);
-      pushUnique(extractPostgresUrisFromEnvContent(text, relPath));
+      const envCandidates = extractDatabaseUrisFromEnvContent(text, relPath).map(
+        (c) => absolutizeEnvSqliteCandidate(c, uri.fsPath),
+      );
+      pushUnique(envCandidates);
     } catch {
       // Skip unreadable files cleanly
     }
@@ -56,7 +94,7 @@ export async function discoverWorkspacePostgresConnections(): Promise<
       const bytes = await vscode.workspace.fs.readFile(uri);
       const relPath = vscode.workspace.asRelativePath(uri, false);
       pushUnique(
-        extractPostgresUrisFromComposeContent(
+        extractDatabaseUrisFromComposeContent(
           decoder.decode(bytes),
           relPath,
           combinedEnvMap,
@@ -67,5 +105,22 @@ export async function discoverWorkspacePostgresConnections(): Promise<
     }
   }
 
+  for (const uri of sqliteFiles) {
+    const relPath = vscode.workspace.asRelativePath(uri, false);
+    const sqliteUri = `sqlite://${uri.fsPath}`;
+    pushUnique([
+      {
+        label: `SQLite (${relPath})`,
+        sourceFile: relPath,
+        uri: sqliteUri,
+        displayTarget: sanitizeConnectionDisplayTarget(sqliteUri, 'sqlite'),
+        engine: 'sqlite',
+      },
+    ]);
+  }
+
   return results;
 }
+
+export const discoverWorkspacePostgresConnections =
+  discoverWorkspaceDatabaseConnections;

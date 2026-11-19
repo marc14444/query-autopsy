@@ -1,36 +1,87 @@
-name: Release Extension (VS Code Marketplace & Open VSX)
+name: Auto-Tag & Release Extension (On Merge to main)
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect package.json version and existing git tags
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid semver in package.json: '$VERSION'"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists on repository — skipping automatic release."
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "New release version detected: $TAG"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.meta.outputs.should_release == 'true'
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-      - run: npm run check-types
-      - run: npm run lint
-      - run: npm run test
-      - run: npm run package:vsix
+      - if: steps.meta.outputs.should_release == 'true'
+        run: npm ci
 
-      - name: Attach VSIX to GitHub Release
+      - if: steps.meta.outputs.should_release == 'true'
+        run: npm run check-types
+
+      - if: steps.meta.outputs.should_release == 'true'
+        run: npm run lint
+
+      - if: steps.meta.outputs.should_release == 'true'
+        run: npm run test
+
+      - if: steps.meta.outputs.should_release == 'true'
+        run: npm run package:vsix
+
+      - name: Create and push git tag
+        if: steps.meta.outputs.should_release == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Create GitHub Release & Attach VSIX
+        if: steps.meta.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
           files: "*.vsix"
           generate_release_notes: true
 
       - name: Publish to Visual Studio Marketplace
+        if: steps.meta.outputs.should_release == 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
@@ -41,6 +92,7 @@ jobs:
           fi
 
       - name: Publish to Open VSX Registry (Antigravity, Cursor, Windsurf, VSCodium)
+        if: steps.meta.outputs.should_release == 'true'
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |

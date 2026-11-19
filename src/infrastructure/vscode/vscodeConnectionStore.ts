@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import {
   type ConnectionProfile,
   type SaveConnectionProfileInput,
-  sanitizePostgresDisplayTarget,
+  sanitizeConnectionDisplayTarget,
 } from '../../domain/models/connectionProfile.js';
+import { detectDatabaseEngineFromUri } from '../../domain/models/databaseEngine.js';
 import type {
   ConnectionConfigPort,
   RuntimeSettings,
@@ -44,9 +45,10 @@ export class VsCodeConnectionStore
     const migrated: ConnectionProfile = {
       id: 'default',
       name: 'Local Default',
+      engine: detectDatabaseEngineFromUri(trimmed),
       environment: 'local',
       readOnlyLocked: false,
-      displayTarget: sanitizePostgresDisplayTarget(trimmed),
+      displayTarget: sanitizeConnectionDisplayTarget(trimmed),
     };
 
     await this.secrets.store(this.profileSecretKey(migrated.id), trimmed);
@@ -77,12 +79,14 @@ export class VsCodeConnectionStore
   ): Promise<ConnectionProfile> {
     await this.ensureMigrated();
     const trimmedDsn = connectionString.trim();
+    const engine = input.engine ?? detectDatabaseEngineFromUri(trimmedDsn);
     const profile: ConnectionProfile = {
       id: input.id,
       name: input.name.trim(),
+      engine,
       environment: input.environment,
       readOnlyLocked: input.readOnlyLocked,
-      displayTarget: sanitizePostgresDisplayTarget(trimmedDsn),
+      displayTarget: sanitizeConnectionDisplayTarget(trimmedDsn, engine),
     };
 
     const existing = this.state.get<ConnectionProfile[]>(PROFILES_STATE_KEY, []);
@@ -159,6 +163,7 @@ export class VsCodeConnectionStore
         {
           id: active.id,
           name: active.name,
+          engine: active.engine ?? detectDatabaseEngineFromUri(connectionString),
           environment: active.environment,
           readOnlyLocked: active.readOnlyLocked,
         },
@@ -171,6 +176,7 @@ export class VsCodeConnectionStore
       {
         id: 'default',
         name: 'Local Default',
+        engine: detectDatabaseEngineFromUri(connectionString),
         environment: 'local',
         readOnlyLocked: false,
       },

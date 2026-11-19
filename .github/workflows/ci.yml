@@ -7,6 +7,23 @@ on:
     branches: [main]
 
 jobs:
+  branch-naming:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce branch naming convention
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          PATTERN='^(feat|fix|chore|docs|refactor|test|ci|perf|hotfix)\/[a-z0-9][a-z0-9._-]*$'
+          BOT_PATTERN='^(dependabot|renovate)\/.+$'
+          if [[ "$HEAD_REF" =~ $PATTERN || "$HEAD_REF" =~ $BOT_PATTERN ]]; then
+            echo "Branch name '$HEAD_REF' matches repository convention."
+          else
+            echo "::error::Invalid PR branch name '$HEAD_REF'. Expected prefix: feat/, fix/, chore/, docs/, refactor/, test/, ci/, perf/, or hotfix/ (lowercase kebab-case, e.g. feat/v0.4.0-multi-engine)."
+            exit 1
+          fi
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -19,4 +36,10 @@ jobs:
       - run: npm run check-types
       - run: npm run lint
       - run: npm run test
+      - name: Enforce Hexagonal Architecture boundaries
+        run: |
+          if grep -rnE "from ['\"](vscode|pg|mysql2|sql\.js|node:|.*infrastructure|.*presentation|.*application)" src/domain src/application; then
+            echo "::error::Forbidden layer import detected inside src/domain/ or src/application/ (see AGENTS.md)."
+            exit 1
+          fi
       - run: npm run package

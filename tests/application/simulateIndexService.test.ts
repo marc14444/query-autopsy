@@ -110,4 +110,48 @@ describe('SimulateIndexService', () => {
     ).rejects.toThrow(UnsafeQueryError);
     expect(queryExecutor.simulateHypotheticalIndex).not.toHaveBeenCalled();
   });
+
+  it('returns unsupported notice cleanly for non-PostgreSQL engines (MySQL/SQLite)', async () => {
+    const connectionConfig: ConnectionConfigPort = {
+      getConnectionString: vi.fn().mockResolvedValue('mysql://root@127.0.0.1:3306/app'),
+      saveConnectionString: vi.fn(),
+      clearConnectionString: vi.fn(),
+      getActiveProfile: vi.fn().mockResolvedValue({
+        id: 'mysql-dev',
+        name: 'MySQL Dev',
+        engine: 'mysql',
+        environment: 'local',
+        readOnlyLocked: false,
+        displayTarget: '127.0.0.1:3306/app',
+      }),
+      listProfiles: vi.fn().mockResolvedValue([]),
+      saveProfile: vi.fn(),
+      setActiveProfile: vi.fn(),
+      setProfileReadOnlyLock: vi.fn(),
+      deleteProfile: vi.fn(),
+      getRuntimeSettings: vi.fn(),
+    };
+    const queryExecutor: QueryExecutorPort = {
+      executeExplain: vi.fn(),
+      executeCreateIndex: vi.fn(),
+      simulateHypotheticalIndex: vi.fn(),
+      testConnection: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const service = new SimulateIndexService({
+      connectionConfig,
+      queryExecutor,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const outcome = await service.execute({
+      querySql: 'SELECT * FROM orders',
+      indexSql: 'CREATE INDEX idx_orders_user_id ON orders (user_id);',
+      baselineCost: 100,
+    });
+
+    expect(outcome.supported).toBe(false);
+    expect(outcome.message).toContain('only available for PostgreSQL');
+    expect(queryExecutor.simulateHypotheticalIndex).not.toHaveBeenCalled();
+  });
 });
