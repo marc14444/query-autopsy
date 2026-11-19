@@ -1,0 +1,172 @@
+{
+  "name": "query-autopsy",
+  "displayName": "QueryAutopsy",
+  "description": "X-Ray your PostgreSQL queries inside VS Code. Inspect EXPLAIN (ANALYZE, BUFFERS) execution plans, catch Seq Scans, buffer bottlenecks, and row misestimates.",
+  "version": "0.1.0",
+  "publisher": "query-autopsy",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#0F172A",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/marc14444/query-autopsy#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marc14444/query-autopsy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/marc14444/query-autopsy/issues"
+  },
+  "keywords": [
+    "postgresql",
+    "postgres",
+    "sql",
+    "explain",
+    "performance",
+    "query-analyzer",
+    "database"
+  ],
+  "categories": [
+    "Other",
+    "Debuggers",
+    "Linters"
+  ],
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "activationEvents": [
+    "onLanguage:sql",
+    "onLanguage:postgres",
+    "onLanguage:pgsql",
+    "onLanguage:mssql",
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "queryAutopsy.inspectSelection",
+        "title": "Inspect Query Performance (EXPLAIN ANALYZE)",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.inspectSelectionEstimate",
+        "title": "Inspect Query Plan Only (EXPLAIN without execution)",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.configureConnection",
+        "title": "Configure PostgreSQL Connection",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.clearConnection",
+        "title": "Clear Stored PostgreSQL Connection",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.inspectCodeLens",
+        "title": "Inspect CodeLens SQL Block",
+        "category": "QueryAutopsy"
+      },
+      {
+        "command": "queryAutopsy.copySuggestedIndex",
+        "title": "Copy Suggested Index SQL",
+        "category": "QueryAutopsy"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "queryAutopsy.inspectCodeLens",
+          "when": "false"
+        },
+        {
+          "command": "queryAutopsy.copySuggestedIndex",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "queryAutopsy.inspectSelection",
+          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || resourceExtname == .sql",
+          "group": "navigation@100"
+        },
+        {
+          "command": "queryAutopsy.inspectSelectionEstimate",
+          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || resourceExtname == .sql",
+          "group": "navigation@101"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "QueryAutopsy",
+      "properties": {
+        "queryAutopsy.postgres.statementTimeoutMs": {
+          "type": "integer",
+          "default": 5000,
+          "minimum": 100,
+          "maximum": 120000,
+          "description": "Maximum execution time (in ms) for EXPLAIN ANALYZE queries via SET LOCAL statement_timeout."
+        },
+        "queryAutopsy.postgres.allowWriteAnalyze": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow EXPLAIN ANALYZE on INSERT/UPDATE/DELETE statements inside an isolated transaction that always issues ROLLBACK. Keep false for maximum safety."
+        },
+        "queryAutopsy.postgres.fallbackConnectionString": {
+          "type": "string",
+          "default": "",
+          "description": "Optional non-sensitive local development connection URI (e.g. postgresql://postgres@localhost:5432/query_autopsy_dev). Prefer 'QueryAutopsy: Configure PostgreSQL Connection' which stores credentials in VS Code SecretStorage."
+        },
+        "queryAutopsy.diagnostics.seqScanRowThreshold": {
+          "type": "integer",
+          "default": 1000,
+          "minimum": 10,
+          "description": "Minimum scanned rows on a Seq Scan node before raising a diagnostic warning."
+        },
+        "queryAutopsy.output.showRawJson": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the raw PostgreSQL EXPLAIN JSON payload in the QueryAutopsy Output Channel."
+        },
+        "queryAutopsy.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline CodeLens actions ('Inspect Plan' / 'Estimate Plan') above SQL queries in .sql and TypeScript/JavaScript files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "package": "node esbuild.config.mjs --production",
+    "vscode:prepublish": "npm run package",
+    "package:vsix": "vsce package --no-dependencies",
+    "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run check-types && npm run test && npm run package"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/pg": "^8.11.10",
+    "@types/vscode": "^1.93.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vscode/vsce": "^4.1.1",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.16.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
+  }
+}
