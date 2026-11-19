@@ -7,9 +7,10 @@ import type { ExecutionPlan, PlanNode } from '../models/executionPlan.js';
 
 export interface DiagnosticConfig {
   readonly seqScanRowThreshold: number;
+  readonly sql?: string | undefined;
 }
 
-type DiagnosticRule = (
+export type DiagnosticRule = (
   node: PlanNode,
   plan: ExecutionPlan,
   config: DiagnosticConfig,
@@ -83,12 +84,13 @@ function sanitizeFilterExpression(filterExpression: string): string {
     .replace(
       /::(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*(?:\s+(?:with|without)\s+time\s+zone|\s+varying|\s+precision)?)(?:\([^)]*\))?(?:\[\])*/gi,
       ' ',
-    );
+    )
+    .replace(/[`"[\]]/g, '');
 }
 
 /**
- * Extracts likely filter column names from a Postgres EXPLAIN Filter expression
- * (e.g. "((user_id = 42) AND (o.status = 'pending'::text))").
+ * Extracts likely filter column names from an EXPLAIN Filter / attached_condition expression
+ * (e.g. "((user_id = 42) AND (o.status = 'pending'::text))" or "((`app`.`orders`.`status` = 'pending'))").
  */
 export function extractFilterColumns(
   filterExpression: string | undefined,
@@ -103,7 +105,7 @@ export function extractFilterColumns(
   const aliasPrefix = alias ? `${alias}.` : undefined;
 
   const comparisonRegex =
-    /(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|<>|!=|<=|>=|<|>|\bIS\b|\bIN\b|\bLIKE\b|\bILIKE\b|\bBETWEEN\b|~~\*?)/gi;
+    /(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|<>|!=|<=|>=|<|>|\bIS\b|\bIN\b|\bLIKE\b|\bILIKE\b|\bBETWEEN\b|~~\*?)/gi;
 
   let match: RegExpExecArray | null;
   while ((match = comparisonRegex.exec(sanitized)) !== null) {
@@ -138,9 +140,9 @@ function classifyPredicateColumns(
   const aliasPrefix = alias ? `${alias}.` : undefined;
 
   const eqRegex =
-    /(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|\bIN\b)/gi;
+    /(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|\bIN\b)/gi;
   const rangeRegex =
-    /(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<=|>=|<|>|\bBETWEEN\b)/gi;
+    /(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<=|>=|<|>|\bBETWEEN\b)/gi;
 
   let match: RegExpExecArray | null;
   while ((match = eqRegex.exec(sanitized)) !== null) {
@@ -175,9 +177,10 @@ function classifyPredicateColumns(
   };
 }
 
-function buildIndexSuggestion(
+export function buildIndexSuggestion(
   tableName: string,
   columns: readonly string[],
+  createPrefix: string = 'CREATE INDEX CONCURRENTLY',
 ): IndexSuggestion | undefined {
   if (columns.length === 0) {
     return undefined;
@@ -199,7 +202,7 @@ function buildIndexSuggestion(
   return {
     table: tableName,
     columns,
-    sql: `CREATE INDEX CONCURRENTLY ${indexName} ON ${tableName} (${columnList});`,
+    sql: `${createPrefix} ${indexName} ON ${tableName} (${columnList});`,
   };
 }
 
@@ -580,7 +583,9 @@ const externalDiskSpillRule: DiagnosticRule = (node) => {
   };
 };
 
-const rowMisestimateRule: DiagnosticRule = (node, plan) => {
+export { classifyPredicateColumns };
+
+export const rowMisestimateRule: DiagnosticRule = (node, plan) => {
   if (plan.mode !== 'analyze' || node.actualRows === undefined) {
     return null;
   }
@@ -663,7 +668,7 @@ const lowCacheHitRule: DiagnosticRule = (node, plan) => {
   };
 };
 
-const nestedLoopHighLoopsRule: DiagnosticRule = (node, plan) => {
+export const nestedLoopHighLoopsRule: DiagnosticRule = (node, plan) => {
   if (plan.mode !== 'analyze' || node.nodeType !== 'Nested Loop') {
     return null;
   }
@@ -705,30 +710,32 @@ const SEVERITY_ORDER: Record<DiagnosticSeverity, number> = {
   info: 2,
 };
 
-function visitTree(
-  node: PlanNode,
+export function analyzePlanWithRules(
   plan: ExecutionPlan,
   config: DiagnosticConfig,
-  findings: DiagnosticFinding[],
-): void {
-  for (const rule of RULES) {
-    const finding = rule(node, plan, config);
-    if (finding) {
-      findings.push(finding);
+  rules: readonly DiagnosticRule[],
+): readonly DiagnosticFinding[] {
+  const findings: DiagnosticFinding[] = [];
+  const visit = (node: PlanNode): void => {
+    for (const rule of rules) {
+      const finding = rule(node, plan, config);
+      if (finding) {
+        findings.push(finding);
+      }
     }
-  }
-  for (const child of node.children) {
-    visitTree(child, plan, config, findings);
-  }
+    for (const child of node.children) {
+      visit(child);
+    }
+  };
+  visit(plan.root);
+  return findings.sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
+  );
 }
 
 export function analyzeExecutionPlan(
   plan: ExecutionPlan,
   config: DiagnosticConfig,
 ): readonly DiagnosticFinding[] {
-  const findings: DiagnosticFinding[] = [];
-  visitTree(plan.root, plan, config, findings);
-  return findings.sort(
-    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
-  );
+  return analyzePlanWithRules(plan, config, RULES);
 }

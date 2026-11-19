@@ -1,14 +1,19 @@
-import { sanitizePostgresDisplayTarget } from '../models/connectionProfile.js';
+import { sanitizeConnectionDisplayTarget } from '../models/connectionProfile.js';
+import {
+  type DatabaseEngine,
+  detectDatabaseEngineFromUri,
+} from '../models/databaseEngine.js';
 
 export interface DiscoveredConnectionCandidate {
   readonly label: string;
   readonly sourceFile: string;
   readonly uri: string;
   readonly displayTarget: string;
+  readonly engine?: DatabaseEngine | undefined;
   readonly needsPasswordPrompt?: boolean | undefined;
 }
 
-const POSTGRES_URI_KEYS = new Set([
+const DB_URI_KEYS = new Set([
   'DATABASE_URL',
   'POSTGRES_URL',
   'POSTGRESQL_URL',
@@ -16,6 +21,12 @@ const POSTGRES_URI_KEYS = new Set([
   'PG_CONNECTION_STRING',
   'POSTGRES_URI',
   'DIRECT_URL',
+  'MYSQL_URL',
+  'MYSQL_URI',
+  'SQLITE_URL',
+  'SQLITE_PATH',
+  'DB_URL',
+  'DB_CONNECTION',
 ]);
 
 function stripWrappingQuotes(value: string): string {
@@ -29,24 +40,38 @@ function stripWrappingQuotes(value: string): string {
   return trimmed;
 }
 
-function isPostgresUri(value: string): boolean {
-  if (!value.startsWith('postgres://') && !value.startsWith('postgresql://')) {
-    return false;
+function isSupportedUri(value: string): boolean {
+  const lower = value.toLowerCase();
+  if (
+    lower.startsWith('postgres://') ||
+    lower.startsWith('postgresql://') ||
+    lower.startsWith('mysql://') ||
+    lower.startsWith('mysql2://')
+  ) {
+    try {
+      const parsed = new URL(value);
+      return Boolean(parsed.hostname);
+    } catch {
+      return false;
+    }
   }
-  try {
-    const parsed = new URL(value);
-    return Boolean(parsed.hostname);
-  } catch {
-    return false;
+  if (
+    lower.startsWith('sqlite://') ||
+    lower.startsWith('sqlite:') ||
+    (lower.startsWith('file:') && /\.(?:sqlite3?|db)(?:$|\?)/i.test(value))
+  ) {
+    return value.length > 6;
   }
+  return false;
 }
 
 /**
- * Pure parser extracting PostgreSQL connection URIs from `.env` files.
+ * Pure parser extracting supported database connection URIs (PostgreSQL, MySQL, SQLite) from `.env` files.
  */
-export function extractPostgresUrisFromEnvContent(
+export function extractDatabaseUrisFromEnvContent(
   content: string,
   sourceFile: string,
+  allowedEngines?: ReadonlySet<DatabaseEngine>,
 ): readonly DiscoveredConnectionCandidate[] {
   const candidates: DiscoveredConnectionCandidate[] = [];
   const seenUris = new Set<string>();
@@ -69,7 +94,6 @@ export function extractPostgresUrisFromEnvContent(
     const key = normalizedLine.slice(0, eqIndex).trim();
     let rawValue = normalizedLine.slice(eqIndex + 1).trim();
 
-    // Strip unquoted trailing comments
     if (!rawValue.startsWith('"') && !rawValue.startsWith("'")) {
       const commentIdx = rawValue.indexOf(' #');
       if (commentIdx !== -1) {
@@ -78,11 +102,24 @@ export function extractPostgresUrisFromEnvContent(
     }
 
     const value = stripWrappingQuotes(rawValue);
-    if (!isPostgresUri(value)) {
+    if (!isSupportedUri(value)) {
       continue;
     }
 
-    if (!POSTGRES_URI_KEYS.has(key.toUpperCase()) && !key.toUpperCase().includes('PG') && !key.toUpperCase().includes('POSTGRES') && !key.toUpperCase().includes('DATABASE')) {
+    const engine = detectDatabaseEngineFromUri(value);
+    if (allowedEngines && !allowedEngines.has(engine)) {
+      continue;
+    }
+
+    const upperKey = key.toUpperCase();
+    if (
+      !DB_URI_KEYS.has(upperKey) &&
+      !upperKey.includes('PG') &&
+      !upperKey.includes('POSTGRES') &&
+      !upperKey.includes('MYSQL') &&
+      !upperKey.includes('SQLITE') &&
+      !upperKey.includes('DATABASE')
+    ) {
       continue;
     }
 
@@ -91,16 +128,28 @@ export function extractPostgresUrisFromEnvContent(
     }
     seenUris.add(value);
 
-    const displayTarget = sanitizePostgresDisplayTarget(value);
+    const displayTarget = sanitizeConnectionDisplayTarget(value, engine);
     candidates.push({
       label: `${key} (${displayTarget})`,
       sourceFile,
       uri: value,
       displayTarget,
+      ...(allowedEngines ? {} : { engine }),
     });
   }
 
   return candidates;
+}
+
+export function extractPostgresUrisFromEnvContent(
+  content: string,
+  sourceFile: string,
+): readonly DiscoveredConnectionCandidate[] {
+  return extractDatabaseUrisFromEnvContent(
+    content,
+    sourceFile,
+    new Set<DatabaseEngine>(['postgresql']),
+  );
 }
 
 /**
@@ -158,19 +207,20 @@ function resolveEnvTemplate(
 }
 
 /**
- * Pure lightweight parser extracting local PostgreSQL service credentials from `docker-compose.yml` / `compose.yml`.
+ * Pure parser extracting local PostgreSQL & MySQL/MariaDB service credentials from `docker-compose.yml` / `compose.yml`.
  */
-export function extractPostgresUrisFromComposeContent(
+export function extractDatabaseUrisFromComposeContent(
   content: string,
   sourceFile: string,
   envMap?: ReadonlyMap<string, string>,
+  includeEngineField = true,
 ): readonly DiscoveredConnectionCandidate[] {
   const lines = content.split(/\r?\n/);
   const candidates: DiscoveredConnectionCandidate[] = [];
 
   let currentServiceName = '';
   let serviceIndent = -1;
-  let isPostgresService = false;
+  let detectedEngine: DatabaseEngine | undefined;
   let user = 'postgres';
   let password = '';
   let passwordUnresolved = false;
@@ -178,19 +228,21 @@ export function extractPostgresUrisFromComposeContent(
   let hostPort = '5432';
 
   const flushService = (): void => {
-    if (!isPostgresService) {
+    if (!detectedEngine) {
       return;
     }
+    const scheme = detectedEngine === 'mysql' ? 'mysql' : 'postgresql';
     const auth = password
       ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}@`
       : `${encodeURIComponent(user)}@`;
-    const uri = `postgresql://${auth}localhost:${hostPort}/${encodeURIComponent(db)}`;
-    const displayTarget = sanitizePostgresDisplayTarget(uri);
+    const uri = `${scheme}://${auth}localhost:${hostPort}/${encodeURIComponent(db)}`;
+    const displayTarget = sanitizeConnectionDisplayTarget(uri, detectedEngine);
     candidates.push({
       label: `Docker "${currentServiceName}" (${displayTarget})`,
       sourceFile,
       uri,
       displayTarget,
+      ...(includeEngineField ? { engine: detectedEngine } : {}),
       ...(passwordUnresolved ? { needsPasswordPrompt: true } : {}),
     });
   };
@@ -219,18 +271,17 @@ export function extractPostgresUrisFromComposeContent(
     if (indent <= servicesIndent) {
       flushService();
       inServices = false;
-      isPostgresService = false;
+      detectedEngine = undefined;
       continue;
     }
 
-    // Direct child under services: e.g. `postgres:`
     if (serviceIndent === -1 || indent === serviceIndent) {
       const svcMatch = /^([a-zA-Z0-9_-]+)\s*:\s*$/.exec(trimmed);
       if (svcMatch) {
         flushService();
         currentServiceName = svcMatch[1]!;
         serviceIndent = indent;
-        isPostgresService = false;
+        detectedEngine = undefined;
         user = 'postgres';
         password = '';
         passwordUnresolved = false;
@@ -252,13 +303,27 @@ export function extractPostgresUrisFromComposeContent(
         imageName.includes('postgis') ||
         imageName.includes('timescaledb')
       ) {
-        isPostgresService = true;
+        detectedEngine = 'postgresql';
+        user = 'postgres';
+        db = 'postgres';
+        hostPort = '5432';
+      } else if (
+        imageName.includes('mysql') ||
+        imageName.includes('mariadb') ||
+        imageName.includes('percona')
+      ) {
+        detectedEngine = 'mysql';
+        user = 'root';
+        db = '';
+        hostPort = '3306';
       }
       continue;
     }
 
     const portMatch =
-      /^-\s*["']?(?:[\d.]+:)?(\d+|\$\{[^}]+\}):5432["']?/.exec(trimmed);
+      /^-\s*["']?(?:[\d.]+:)?(\d+|\$\{[^}]+\}):(5432|3306)["']?/.exec(
+        trimmed,
+      );
     if (portMatch) {
       const resolvedPort = resolveEnvTemplate(portMatch[1]!, envMap);
       if (/^\d+$/.test(resolvedPort.value)) {
@@ -267,13 +332,12 @@ export function extractPostgresUrisFromComposeContent(
       continue;
     }
 
-    // Handles both `POSTGRES_USER: postgres` and `- POSTGRES_USER=postgres`
     const envMatch =
-      /^(?:-\s*)?(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)\s*[:=]\s*(.+)$/.exec(
+      /^(?:-\s*)?(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|MYSQL_ROOT_PASSWORD|MYSQL_USER|MYSQL_PASSWORD|MYSQL_DATABASE|MARIADB_ROOT_PASSWORD|MARIADB_USER|MARIADB_PASSWORD|MARIADB_DATABASE)\s*[:=]\s*(.+)$/.exec(
         trimmed,
       );
     if (envMatch) {
-      const envKey = envMatch[1];
+      const envKey = envMatch[1]!;
       const rawVal = stripWrappingQuotes(envMatch[2]!);
       const resolved = resolveEnvTemplate(rawVal, envMap);
 
@@ -284,10 +348,41 @@ export function extractPostgresUrisFromComposeContent(
         passwordUnresolved = resolved.unresolved;
       } else if (envKey === 'POSTGRES_DB' && resolved.value) {
         db = resolved.value;
+      } else if (
+        (envKey === 'MYSQL_USER' || envKey === 'MARIADB_USER') &&
+        resolved.value
+      ) {
+        user = resolved.value;
+      } else if (
+        envKey === 'MYSQL_PASSWORD' ||
+        envKey === 'MARIADB_PASSWORD' ||
+        envKey === 'MYSQL_ROOT_PASSWORD' ||
+        envKey === 'MARIADB_ROOT_PASSWORD'
+      ) {
+        password = resolved.value;
+        passwordUnresolved = resolved.unresolved;
+      } else if (
+        (envKey === 'MYSQL_DATABASE' || envKey === 'MARIADB_DATABASE') &&
+        resolved.value
+      ) {
+        db = resolved.value;
       }
     }
   }
 
   flushService();
   return candidates;
+}
+
+export function extractPostgresUrisFromComposeContent(
+  content: string,
+  sourceFile: string,
+  envMap?: ReadonlyMap<string, string>,
+): readonly DiscoveredConnectionCandidate[] {
+  return extractDatabaseUrisFromComposeContent(
+    content,
+    sourceFile,
+    envMap,
+    false,
+  ).filter((c) => detectDatabaseEngineFromUri(c.uri) === 'postgresql');
 }

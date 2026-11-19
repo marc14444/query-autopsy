@@ -1,7 +1,7 @@
 # QueryAutopsy Master Roadmap (`v0.2.0` → `v1.0.0`)
 
 **Role**: Principal Backend Architecture & Product Execution Plan
-**Status**: `v0.3.0` Sprint 2 Implemented (`v0.2.0` Live on Open VSX)
+**Status**: `v0.4.0` Sprint 3 Implemented (`v0.3.2` Live on Open VSX)
 **Mission**: Become the #1 cross-IDE SQL performance profiler across **VS Code, Antigravity IDE, Cursor, Windsurf, and VSCodium**.
 
 ---
@@ -45,7 +45,7 @@
 
 ---
 
-### Sprint 3 (`v0.4.0`) — Multi-Engine Architecture (`MySQL 8+` & `SQLite`)
+### Sprint 3 (`v0.4.0`) — Multi-Engine Architecture (`MySQL 8+` & `SQLite`) (Implemented)
 **Theme**: *"Expand addressable user base 3× without duplicating Webview, CodeLens, or Editor Diagnostics."*
 
 #### Architectural Pattern

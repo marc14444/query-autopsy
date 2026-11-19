@@ -1,3 +1,4 @@
+import { formatEngineLabel } from '../models/databaseEngine.js';
 import type { InspectionReport } from '../models/diagnostic.js';
 import type { PlanComparisonSummary } from './planDiff.js';
 
@@ -20,7 +21,8 @@ export function formatMarkdownPrReport(
       ? `${(plan.totalBuffers.cacheHitRatio * 100).toFixed(1)}%`
       : 'N/A';
 
-  lines.push('### QueryAutopsy PostgreSQL Performance Report');
+  const engineLabel = formatEngineLabel(report.engine ?? 'postgresql');
+  lines.push(`### QueryAutopsy ${engineLabel} Performance Report`);
   lines.push('');
   lines.push(
     `- **Mode**: \`${report.mode.toUpperCase()}\` (${report.statementKind})${report.profileName ? ` | **Profile**: \`${report.profileName}\`` : ''}`,

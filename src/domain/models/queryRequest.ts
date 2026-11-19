@@ -1,3 +1,5 @@
+import type { DatabaseEngine } from './databaseEngine.js';
+
 export type ExplainMode = 'analyze' | 'estimate';
 
 export type SqlStatementKind = 'READ' | 'WRITE' | 'DDL' | 'EXPLAIN' | 'UNKNOWN';
@@ -15,6 +17,7 @@ export interface InspectQueryInput {
 }
 
 export interface ExplainExecutionRequest {
+  readonly engine?: DatabaseEngine | undefined;
   readonly sql: string;
   readonly kind: SqlStatementKind;
   readonly mode: ExplainMode;

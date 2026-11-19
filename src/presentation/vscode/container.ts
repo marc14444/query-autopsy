@@ -4,7 +4,7 @@ import { InspectQueryService } from '../../application/usecases/inspectQueryServ
 import { SimulateIndexService } from '../../application/usecases/simulateIndexService.js';
 import { MissingParametersError } from '../../domain/errors/domainErrors.js';
 import type { InspectionReport } from '../../domain/models/diagnostic.js';
-import { PgQueryExecutor } from '../../infrastructure/postgres/pgQueryExecutor.js';
+import { MultiEngineQueryExecutor } from '../../infrastructure/database/multiEngineQueryExecutor.js';
 import { CompositeReportPresenter } from '../../infrastructure/vscode/compositeReportPresenter.js';
 import { OutputChannelLogger } from '../../infrastructure/vscode/logger.js';
 import { OutputChannelReportPresenter } from '../../infrastructure/vscode/outputChannelPresenter.js';
@@ -13,7 +13,7 @@ import {
   type RerunQueryHandler,
   WebviewReportPresenter,
 } from '../../infrastructure/vscode/webview/webviewReportPresenter.js';
-import { discoverWorkspacePostgresConnections } from '../../infrastructure/vscode/workspaceEnvDiscovery.js';
+import { discoverWorkspaceDatabaseConnections } from '../../infrastructure/vscode/workspaceEnvDiscovery.js';
 import {
   type CodeLensInspectArgs,
   INSPECT_CODELENS_COMMAND,
@@ -47,6 +47,8 @@ const SUPPORTED_DOCUMENT_SELECTORS: vscode.DocumentSelector = [
   { language: 'sql' },
   { language: 'postgres' },
   { language: 'pgsql' },
+  { language: 'mysql' },
+  { language: 'sqlite' },
   { language: 'mssql' },
   { language: 'typescript' },
   { language: 'javascript' },
@@ -69,7 +71,7 @@ export function createExtensionContainer(
     context.secrets,
     context.globalState,
   );
-  const queryExecutor = new PgQueryExecutor(logger);
+  const queryExecutor = new MultiEngineQueryExecutor(logger);
   const statusBar = new ConnectionStatusBar(connectionConfig);
 
   let activeProfileReadOnly = false;
@@ -90,7 +92,7 @@ export function createExtensionContainer(
     runConfigureConnectionCommand(
       connectionConfig,
       queryExecutor,
-      discoverWorkspacePostgresConnections,
+      discoverWorkspaceDatabaseConnections,
       logger,
     );
 
@@ -255,7 +257,7 @@ export function createExtensionContainer(
         }
 
         const confirm = await vscode.window.showWarningMessage(
-          `Execute this index creation on your configured PostgreSQL database?\n\n${args.indexSql}`,
+          `Execute this index creation on your configured database?\n\n${args.indexSql}`,
           { modal: true },
           'Create Index & Re-analyze',
         );
@@ -267,7 +269,7 @@ export function createExtensionContainer(
           await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
-              title: 'QueryAutopsy: Creating index CONCURRENTLY on PostgreSQL...',
+              title: 'QueryAutopsy: Creating suggested index...',
               cancellable: false,
             },
             async () => applyIndexUseCase.execute(args.indexSql),
@@ -311,7 +313,7 @@ export function createExtensionContainer(
       runAutoDetectConnectionCommand(
         connectionConfig,
         queryExecutor,
-        discoverWorkspacePostgresConnections,
+        discoverWorkspaceDatabaseConnections,
         logger,
       ),
     ),

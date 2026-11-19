@@ -1,6 +1,11 @@
 ## Summary
 
-Describe the motivation and changes in this PR.
+Describe the motivation, scope, and testing performed for this Pull Request.
+
+## Branch & Release
+
+- **Branch type**: `feat/` / `fix/` / `chore/` / `docs/` / `refactor/` / `ci/`
+- **Triggers release on merge to `main`?** (Requires `package.json` version bump + `CHANGELOG.md` entry): Yes / No
 
 ## Related Docs / ADR
 
@@ -8,8 +13,10 @@ Describe the motivation and changes in this PR.
 
 ## Verification Checklist
 
-- [ ] Followed Hexagonal boundaries in `AGENTS.md` (`src/domain/` and `src/application/` have zero `vscode` or `pg` imports).
+- [ ] Branch follows `<type>/<kebab-case-slug>` naming convention.
+- [ ] Followed Hexagonal boundaries in `AGENTS.md` (`src/domain/` and `src/application/` contain zero driver/UI imports).
 - [ ] Added or updated Vitest unit tests under `tests/`.
+- [ ] Tested manually in Extension Development Host (`F5`) if UI / DB executor changed.
 - [ ] `npm run check-types` passes.
 - [ ] `npm run lint` passes.
 - [ ] `npm run test` passes.

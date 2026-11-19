@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizePostgresDisplayTarget } from '../../src/domain/models/connectionProfile.js';
 import {
+  sanitizeConnectionDisplayTarget,
+  sanitizePostgresDisplayTarget,
+} from '../../src/domain/models/connectionProfile.js';
+import {
+  extractDatabaseUrisFromComposeContent,
+  extractDatabaseUrisFromEnvContent,
   extractPostgresUrisFromComposeContent,
   extractPostgresUrisFromEnvContent,
   parseEnvKeyValueMap,
@@ -123,6 +128,58 @@ services:
       uri: 'postgresql://myuser@localhost:5432/appdb',
       displayTarget: 'localhost:5432/appdb',
       needsPasswordPrompt: true,
+    });
+  });
+});
+
+describe('Multi-Engine Database Discovery (v0.4.0)', () => {
+  it('extracts MySQL and SQLite URIs from .env and sanitizes display targets', () => {
+    const envContent = `
+DATABASE_URL="file:./prisma/dev.db"
+MYSQL_URL=mysql://shop_user:secret@127.0.0.1:3306/shop_db
+`;
+    const candidates = extractDatabaseUrisFromEnvContent(envContent, '.env');
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toEqual({
+      label: 'DATABASE_URL (dev.db)',
+      sourceFile: '.env',
+      uri: 'file:./prisma/dev.db',
+      displayTarget: 'dev.db',
+      engine: 'sqlite',
+    });
+    expect(candidates[1]).toEqual({
+      label: 'MYSQL_URL (127.0.0.1:3306/shop_db)',
+      sourceFile: '.env',
+      uri: 'mysql://shop_user:secret@127.0.0.1:3306/shop_db',
+      displayTarget: '127.0.0.1:3306/shop_db',
+      engine: 'mysql',
+    });
+    expect(sanitizeConnectionDisplayTarget('/tmp/test.sqlite')).toBe('test.sqlite');
+  });
+
+  it('extracts mysql and mariadb services from docker-compose.yml', () => {
+    const compose = `
+services:
+  mysql:
+    image: mysql:8.4
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_USER: app
+      MYSQL_PASSWORD: secret
+      MYSQL_DATABASE: orders_db
+`;
+    const candidates = extractDatabaseUrisFromComposeContent(
+      compose,
+      'docker-compose.yml',
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      label: 'Docker "mysql" (localhost:3307/orders_db)',
+      sourceFile: 'docker-compose.yml',
+      uri: 'mysql://app:secret@localhost:3307/orders_db',
+      displayTarget: 'localhost:3307/orders_db',
+      engine: 'mysql',
     });
   });
 });

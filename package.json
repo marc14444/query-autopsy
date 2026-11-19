@@ -1,8 +1,8 @@
 {
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
-  "description": "X-Ray your PostgreSQL queries inside VS Code. Inspect EXPLAIN (ANALYZE, BUFFERS) execution plans, catch Seq Scans, buffer bottlenecks, and row misestimates.",
-  "version": "0.3.2",
+  "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
+  "version": "0.4.0",
   "publisher": "marc14444",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -39,6 +39,8 @@
     "onLanguage:sql",
     "onLanguage:postgres",
     "onLanguage:pgsql",
+    "onLanguage:mysql",
+    "onLanguage:sqlite",
     "onLanguage:mssql",
     "onLanguage:typescript",
     "onLanguage:javascript",
@@ -60,17 +62,17 @@
       },
       {
         "command": "queryAutopsy.configureConnection",
-        "title": "Switch / Configure PostgreSQL Profile",
+        "title": "Switch / Configure Database Profile",
         "category": "QueryAutopsy"
       },
       {
         "command": "queryAutopsy.discoverConnections",
-        "title": "Auto-Detect Local PostgreSQL (.env / Docker)",
+        "title": "Auto-Detect Local Databases (.env / Docker / SQLite)",
         "category": "QueryAutopsy"
       },
       {
         "command": "queryAutopsy.clearConnection",
-        "title": "Clear Stored PostgreSQL Connection",
+        "title": "Clear Stored Database Connections",
         "category": "QueryAutopsy"
       },
       {
@@ -107,12 +109,12 @@
       "editor/context": [
         {
           "command": "queryAutopsy.inspectSelection",
-          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || resourceExtname == .sql",
+          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || editorLangId == mysql || editorLangId == sqlite || resourceExtname == .sql",
           "group": "navigation@100"
         },
         {
           "command": "queryAutopsy.inspectSelectionEstimate",
-          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || resourceExtname == .sql",
+          "when": "editorHasSelection || editorLangId == sql || editorLangId == postgres || editorLangId == pgsql || editorLangId == mysql || editorLangId == sqlite || resourceExtname == .sql",
           "group": "navigation@101"
         }
       ]
@@ -169,11 +171,14 @@
     "prepublishOnly": "npm run check-types && npm run test && npm run package"
   },
   "dependencies": {
-    "pg": "^8.13.1"
+    "mysql2": "^3.24.6",
+    "pg": "^8.13.1",
+    "sql.js": "^1.17.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/pg": "^8.11.10",
+    "@types/sql.js": "^1.16.0",
     "@types/vscode": "^1.93.0",
     "@vitest/coverage-v8": "^2.1.8",
     "@vscode/vsce": "^4.1.1",

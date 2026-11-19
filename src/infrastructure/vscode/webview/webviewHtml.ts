@@ -43,7 +43,7 @@ export function buildWebviewHtml(params: WebviewHtmlParams): string {
 
   <main id="app-main">
     <section id="empty-state" class="empty-state">
-      <p>Waiting for PostgreSQL execution plan...</p>
+      <p>Waiting for database execution plan...</p>
     </section>
 
     <div id="report-root" hidden>
@@ -83,7 +83,7 @@ export function buildWebviewHtml(params: WebviewHtmlParams): string {
               <button type="button" id="btn-filter-issues" class="filter-btn" aria-pressed="false">Bottlenecks Only</button>
             </div>
           </div>
-          <ul id="plan-tree" class="plan-tree" aria-label="PostgreSQL execution nodes"></ul>
+          <ul id="plan-tree" class="plan-tree" aria-label="Execution plan nodes"></ul>
         </section>
 
         <aside aria-labelledby="inspector-heading" class="inspector-panel">

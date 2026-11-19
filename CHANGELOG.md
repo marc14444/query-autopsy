@@ -2,6 +2,14 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [0.4.0] - 2026-11-19
+
+### Added
+- **Multi-Engine Architecture (`PostgreSQL`, `MySQL 8+`, `SQLite`)**: Added `DatabaseEngineAdapter` registry (`src/domain/engines/`), multi-engine SQL dialect classifier (`?`, `?1`, `$1`, backticks, `#` comments), and unified `MultiEngineQueryExecutor`.
+- **MySQL 8+ / MariaDB Support (`mysql2`)**: Supports `EXPLAIN ANALYZE` (`FORMAT=TREE` with inclusive/exclusive timings) and `EXPLAIN FORMAT=JSON`, detecting `MYSQL_FULL_TABLE_SCAN` (`ALL`), `MYSQL_USING_FILESORT`, `MYSQL_USING_TEMPORARY`, and planner misestimates.
+- **SQLite Support via Pure-JS WASM (`sql.js`)**: Zero-native cross-platform `EXPLAIN QUERY PLAN` analysis inside an isolated in-memory WASM copy (zero risk of mutating `.db`/`.sqlite` files during inspection), plus persistent `CREATE INDEX IF NOT EXISTS` QuickFix and `**/*.{sqlite,sqlite3,db}` workspace auto-detection.
+- **Engine-Aware Profiles & UI**: Added engine selector & SQLite file picker in profile configuration, dynamic Status Bar engine badges (`PG:`, `MySQL:`, `SQLite:`), Webview engine badge, and engine-conditional HypoPG UI controls.
+
 ## [0.3.2] - 2026-11-19
 
 ### Fixed
