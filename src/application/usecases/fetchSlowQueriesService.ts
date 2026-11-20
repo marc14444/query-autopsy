@@ -1,5 +1,8 @@
 import { MissingConnectionError } from '../../domain/errors/domainErrors.js';
-import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import {
+  assertSafeProfileConnection,
+  resolveProfileEngine,
+} from '../../domain/models/connectionProfile.js';
 import { detectDatabaseEngineFromUri } from '../../domain/models/databaseEngine.js';
 import type { SlowQueryFetchResult } from '../../domain/models/slowQuery.js';
 import type {
@@ -30,6 +33,8 @@ export class FetchSlowQueriesService implements FetchSlowQueriesUseCase {
     if (!connectionString) {
       throw new MissingConnectionError();
     }
+
+    assertSafeProfileConnection(activeProfile, connectionString);
 
     const engine = activeProfile
       ? resolveProfileEngine(activeProfile)

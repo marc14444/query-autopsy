@@ -48,7 +48,7 @@ function absolutizeEnvSqliteCandidate(
 export async function discoverWorkspaceDatabaseConnections(): Promise<
   readonly DiscoveredConnectionCandidate[]
 > {
-  if (!vscode.workspace.workspaceFolders?.length) {
+  if (!vscode.workspace.isTrusted || !vscode.workspace.workspaceFolders?.length) {
     return [];
   }
 

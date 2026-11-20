@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import {
+  extractConnectionHost,
+  isLoopbackHost,
+  isRemoteUnsafeSslUri,
   type ProfileEnvironment,
   resolveProfileEngine,
   sanitizeConnectionDisplayTarget,
@@ -391,6 +394,29 @@ async function verifyAndSaveProfile(
 ): Promise<boolean> {
   const trimmedUri = uri.trim();
 
+  if (isRemoteUnsafeSslUri(trimmedUri, engine)) {
+    const targetHost = extractConnectionHost(trimmedUri, engine) ?? 'remote host';
+    if (environment === 'production') {
+      logger.warn('Blocked insecure sslmode=no-verify on remote production host', {
+        profileId: id,
+        engine,
+      });
+      void vscode.window.showErrorMessage(
+        `QueryAutopsy: Production profile "${name}" cannot use "?sslmode=no-verify" on remote host "${targetHost}". Use "?sslmode=require" to verify TLS certificates.`,
+      );
+      return false;
+    }
+
+    const tlsConfirm = await vscode.window.showWarningMessage(
+      `TLS certificate verification is disabled (?sslmode=no-verify) for remote host "${targetHost}". Only continue for trusted self-signed dev servers.`,
+      { modal: true },
+      'Save & Connect Anyway',
+    );
+    if (tlsConfirm !== 'Save & Connect Anyway') {
+      return false;
+    }
+  }
+
   try {
     const versionInfo = await vscode.window.withProgress(
       {
@@ -411,9 +437,15 @@ async function verifyAndSaveProfile(
       environment,
       readOnlyLocked,
     });
-    void vscode.window.showInformationMessage(
-      `QueryAutopsy [${name}]: Connected (${versionInfo.serverVersion.split(',')[0]})`,
-    );
+    if (versionInfo.isSuperuser) {
+      void vscode.window.showWarningMessage(
+        `QueryAutopsy [${name}]: Connected as a PostgreSQL superuser (${versionInfo.serverVersion.split(',')[0]}). Prefer a least-privilege read-only role outside local dev.`,
+      );
+    } else {
+      void vscode.window.showInformationMessage(
+        `QueryAutopsy [${name}]: Connected (${versionInfo.serverVersion.split(',')[0]})`,
+      );
+    }
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -527,6 +559,13 @@ export async function runAutoDetectConnectionCommand(
   discoverConnections: DiscoverConnectionsFn,
   logger: LoggerPort,
 ): Promise<boolean> {
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage(
+      'QueryAutopsy: Auto-detecting databases from .env / docker-compose is disabled in Untrusted Workspaces.',
+    );
+    return false;
+  }
+
   const candidates = await discoverConnections();
   if (candidates.length === 0) {
     void vscode.window.showInformationMessage(
@@ -576,7 +615,11 @@ export async function runAutoDetectConnectionCommand(
     }
   }
 
-  const envChoice = await promptEnvironmentChoice('local');
+  const discoveredHost = extractConnectionHost(finalUri, picked.engine);
+  const defaultDiscoveredEnv: ProfileEnvironment =
+    discoveredHost && !isLoopbackHost(discoveredHost) ? 'staging' : 'local';
+
+  const envChoice = await promptEnvironmentChoice(defaultDiscoveredEnv);
   if (!envChoice) {
     return false;
   }

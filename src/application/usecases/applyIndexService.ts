@@ -3,7 +3,10 @@ import {
   UnsafeQueryError,
 } from '../../domain/errors/domainErrors.js';
 import { getEngineAdapter } from '../../domain/engines/engineRegistry.js';
-import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import {
+  assertSafeProfileConnection,
+  resolveProfileEngine,
+} from '../../domain/models/connectionProfile.js';
 import {
   detectDatabaseEngineFromUri,
   formatEngineLabel,
@@ -45,6 +48,8 @@ export class ApplyIndexService implements ApplyIndexUseCase {
     if (!connectionString) {
       throw new MissingConnectionError();
     }
+
+    assertSafeProfileConnection(activeProfile, connectionString);
 
     const label = formatEngineLabel(engine);
     this.deps.logger.info(`Applying user-confirmed ${label} index`, {

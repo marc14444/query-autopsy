@@ -72,6 +72,32 @@ const SUPPORTED_DOCUMENT_SELECTORS: vscode.DocumentSelector = [
 ];
 
 /**
+ * Guards all database-touching actions behind VS Code Workspace Trust to prevent
+ * untrusted cloned repositories from triggering SSRF, .env harvesting, or DB writes.
+ */
+async function ensureWorkspaceTrusted(
+  actionLabel: string,
+  logger: OutputChannelLogger,
+): Promise<boolean> {
+  if (vscode.workspace.isTrusted) {
+    return true;
+  }
+
+  logger.warn('Blocked database action in untrusted workspace', {
+    action: actionLabel,
+  });
+
+  const choice = await vscode.window.showWarningMessage(
+    `QueryAutopsy: "${actionLabel}" is disabled in Untrusted Workspaces to protect against untrusted .env files and unintended database connections.`,
+    'Manage Workspace Trust',
+  );
+  if (choice === 'Manage Workspace Trust') {
+    await vscode.commands.executeCommand('workbench.trust.manage');
+  }
+  return false;
+}
+
+/**
  * Composition Root wiring hexagonal ports, domain/application services, and VS Code adapters.
  */
 export function createExtensionContainer(
@@ -98,17 +124,21 @@ export function createExtensionContainer(
   void syncProfileUiState();
 
   const diagnosticsManager = new EditorDiagnosticsManager(
-    () => activeProfileReadOnly,
+    () => activeProfileReadOnly || !vscode.workspace.isTrusted,
   );
   const codeLensProvider = new SqlCodeLensProvider();
 
-  const configureHandler = () =>
-    runConfigureConnectionCommand(
+  const configureHandler = async (): Promise<boolean> => {
+    if (!(await ensureWorkspaceTrusted('Configure Database Connection', logger))) {
+      return false;
+    }
+    return runConfigureConnectionCommand(
       connectionConfig,
       queryExecutor,
       discoverWorkspaceDatabaseConnections,
       logger,
     );
+  };
 
   let lastInspectionTarget: InspectionTarget | undefined;
   const handleReportProduced = (
@@ -142,6 +172,11 @@ export function createExtensionContainer(
       await rerunHandlerRef.current?.(sql, mode);
     },
     async (querySql, indexSql, baselineCost) => {
+      if (!(await ensureWorkspaceTrusted('Simulate Hypothetical Index', logger))) {
+        throw new Error(
+          'Simulate Hypothetical Index is disabled in Untrusted Workspaces.',
+        );
+      }
       try {
         return await simulateIndexUseCase.execute({
           querySql,
@@ -219,9 +254,13 @@ export function createExtensionContainer(
     inspectSlowQueryFromTree,
     configureHandler,
     logger,
+    (actionLabel) => ensureWorkspaceTrusted(actionLabel, logger),
   );
 
   rerunHandlerRef.current = async (sql, mode) => {
+    if (!(await ensureWorkspaceTrusted('Re-run EXPLAIN Inspection', logger))) {
+      return;
+    }
     await executeInspectionWithUi(
       inspectQueryUseCase,
       sql,
@@ -254,6 +293,10 @@ export function createExtensionContainer(
         void syncProfileUiState();
       }
     }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      void syncProfileUiState();
+      slowQueriesTreeProvider.resetToIdle();
+    }),
     vscode.languages.registerCodeLensProvider(
       SUPPORTED_DOCUMENT_SELECTORS,
       codeLensProvider,
@@ -265,36 +308,47 @@ export function createExtensionContainer(
         providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
       },
     ),
-    vscode.commands.registerCommand('queryAutopsy.inspectSelection', () =>
-      runInspectSelectionCommand(
+    vscode.commands.registerCommand('queryAutopsy.inspectSelection', async () => {
+      if (!(await ensureWorkspaceTrusted('Inspect Query (ANALYZE)', logger))) {
+        return;
+      }
+      await runInspectSelectionCommand(
         inspectQueryUseCase,
         'analyze',
         configureHandler,
         logger,
         handleReportProduced,
-      ),
-    ),
+      );
+    }),
     vscode.commands.registerCommand(
       'queryAutopsy.inspectSelectionEstimate',
-      () =>
-        runInspectSelectionCommand(
+      async () => {
+        if (!(await ensureWorkspaceTrusted('Estimate Query Plan', logger))) {
+          return;
+        }
+        await runInspectSelectionCommand(
           inspectQueryUseCase,
           'estimate',
           configureHandler,
           logger,
           handleReportProduced,
-        ),
+        );
+      },
     ),
     vscode.commands.registerCommand(
       INSPECT_CODELENS_COMMAND,
-      (args?: CodeLensInspectArgs) =>
-        runInspectCodeLensCommand(
+      async (args?: CodeLensInspectArgs) => {
+        if (!(await ensureWorkspaceTrusted('Inspect CodeLens Query', logger))) {
+          return;
+        }
+        await runInspectCodeLensCommand(
           inspectQueryUseCase,
           args,
           configureHandler,
           logger,
           handleReportProduced,
-        ),
+        );
+      },
     ),
     vscode.commands.registerCommand(
       COPY_SUGGESTED_INDEX_COMMAND,
@@ -310,6 +364,9 @@ export function createExtensionContainer(
     vscode.commands.registerCommand(
       APPLY_SUGGESTED_INDEX_COMMAND,
       async (args?: ApplySuggestedIndexArgs) => {
+        if (!(await ensureWorkspaceTrusted('Create Suggested Index', logger))) {
+          return;
+        }
         if (!args || !args.indexSql.trim()) {
           return;
         }
@@ -367,14 +424,17 @@ export function createExtensionContainer(
       'queryAutopsy.configureConnection',
       configureHandler,
     ),
-    vscode.commands.registerCommand('queryAutopsy.discoverConnections', () =>
-      runAutoDetectConnectionCommand(
+    vscode.commands.registerCommand('queryAutopsy.discoverConnections', async () => {
+      if (!(await ensureWorkspaceTrusted('Auto-Detect Local Databases', logger))) {
+        return;
+      }
+      await runAutoDetectConnectionCommand(
         connectionConfig,
         queryExecutor,
         discoverWorkspaceDatabaseConnections,
         logger,
-      ),
-    ),
+      );
+    }),
     vscode.commands.registerCommand('queryAutopsy.clearConnection', () =>
       runClearConnectionCommand(connectionConfig, logger),
     ),

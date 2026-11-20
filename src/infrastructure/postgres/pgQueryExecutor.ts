@@ -1,11 +1,18 @@
 import { Client, type PoolConfig, Pool } from 'pg';
-import { InvalidPlanError } from '../../domain/errors/domainErrors.js';
+import {
+  InvalidPlanError,
+  UnsafeQueryError,
+} from '../../domain/errors/domainErrors.js';
 import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
 import type {
   HypotheticalSimulationOutput,
   QueryExecutorPort,
 } from '../../domain/ports/outbound/queryExecutorPort.js';
+import {
+  classifySqlStatement,
+  validateSafeCreateIndexSql,
+} from '../../domain/services/sqlClassifier.js';
 import { mapPostgresError } from './pgErrors.js';
 
 export function buildPgPoolConfig(connectionString: string): PoolConfig {
@@ -149,6 +156,18 @@ export class PgQueryExecutor implements QueryExecutorPort {
     indexSql: string,
     parameters: readonly unknown[],
   ): Promise<HypotheticalSimulationOutput> {
+    // Defense-in-depth: validate query and index SQL at executor boundary too.
+    const classified = classifySqlStatement(querySql, 'postgresql');
+    if (classified.kind !== 'READ' && classified.kind !== 'WRITE') {
+      throw new UnsafeQueryError(
+        'Cannot simulate index for DDL or unsupported SQL statement.',
+      );
+    }
+    const validatedIndexSql = validateSafeCreateIndexSql(
+      indexSql,
+      'postgresql',
+    );
+
     const pool = await this.getPool(connectionString);
     const client = await pool.connect().catch((err) => {
       throw mapPostgresError(err);
@@ -167,28 +186,44 @@ export class PgQueryExecutor implements QueryExecutorPort {
       }
 
       await client.query('SELECT hypopg_reset()');
-      await client.query('SELECT * FROM hypopg_create_index($1)', [indexSql]);
+      await client.query('SELECT * FROM hypopg_create_index($1)', [
+        validatedIndexSql,
+      ]);
 
-      const explainSql = `EXPLAIN (COSTS, VERBOSE, FORMAT JSON) ${querySql}`;
-      const res =
-        parameters.length > 0
-          ? await client.query(explainSql, [...parameters])
-          : await client.query(explainSql);
+      const beginSql =
+        classified.kind === 'READ' ? 'BEGIN READ ONLY' : 'BEGIN';
+      await client.query(beginSql);
 
-      const firstRow = res.rows[0] as Record<string, unknown> | undefined;
-      const queryPlan = firstRow?.['QUERY PLAN'];
-      if (queryPlan === undefined) {
-        throw new InvalidPlanError(
-          'PostgreSQL did not return a "QUERY PLAN" column during simulation.',
-        );
+      try {
+        await client.query('SET LOCAL statement_timeout = 5000');
+
+        const explainSql = `EXPLAIN (COSTS, VERBOSE, FORMAT JSON) ${classified.normalizedSql}`;
+        const res =
+          parameters.length > 0
+            ? await client.query(explainSql, [...parameters])
+            : await client.query(explainSql);
+
+        const firstRow = res.rows[0] as Record<string, unknown> | undefined;
+        const queryPlan = firstRow?.['QUERY PLAN'];
+        if (queryPlan === undefined) {
+          throw new InvalidPlanError(
+            'PostgreSQL did not return a "QUERY PLAN" column during simulation.',
+          );
+        }
+
+        return {
+          supported: true,
+          rawPlan: queryPlan,
+        };
+      } finally {
+        await client.query('ROLLBACK').catch((rollbackErr) => {
+          this.logger.warn('Rollback warning during HypoPG cleanup', {
+            error: String(rollbackErr),
+          });
+        });
       }
-
-      return {
-        supported: true,
-        rawPlan: queryPlan,
-      };
     } catch (err) {
-      if (err instanceof InvalidPlanError) {
+      if (err instanceof InvalidPlanError || err instanceof UnsafeQueryError) {
         throw err;
       }
       throw mapPostgresError(err);
@@ -200,7 +235,10 @@ export class PgQueryExecutor implements QueryExecutorPort {
 
   async testConnection(
     connectionString: string,
-  ): Promise<{ serverVersion: string }> {
+  ): Promise<{
+    serverVersion: string;
+    isSuperuser?: boolean | undefined;
+  }> {
     const baseConfig = buildPgPoolConfig(connectionString);
     const client = new Client({
       ...baseConfig,
@@ -209,10 +247,22 @@ export class PgQueryExecutor implements QueryExecutorPort {
 
     try {
       await client.connect();
-      const res = await client.query<{ version: string }>(
-        'SELECT version() AS version',
+      const res = await client.query<{
+        version: string;
+        is_superuser: string | null;
+      }>(
+        "SELECT version() AS version, current_setting('is_superuser', true) AS is_superuser",
       );
-      return { serverVersion: res.rows[0]?.version ?? 'PostgreSQL (unknown)' };
+      const isSuperuser = res.rows[0]?.is_superuser === 'on';
+      if (isSuperuser) {
+        this.logger.warn(
+          'PostgreSQL connection uses a superuser role; prefer a least-privilege role outside local development.',
+        );
+      }
+      return {
+        serverVersion: res.rows[0]?.version ?? 'PostgreSQL (unknown)',
+        isSuperuser,
+      };
     } catch (err) {
       throw mapPostgresError(err);
     } finally {

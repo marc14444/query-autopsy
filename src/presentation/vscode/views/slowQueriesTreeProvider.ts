@@ -66,6 +66,9 @@ export class SlowQueriesTreeProvider
     ) => Promise<void>,
     private readonly onConfigureConnectionRequested: () => Promise<boolean>,
     private readonly logger: LoggerPort,
+    private readonly ensureTrustedWorkspace: (
+      actionLabel: string,
+    ) => Promise<boolean> = async () => vscode.workspace.isTrusted,
   ) {}
 
   getSortLabel(): string {
@@ -87,6 +90,16 @@ export class SlowQueriesTreeProvider
   }
 
   async refresh(): Promise<void> {
+    if (!(await this.ensureTrustedWorkspace('Slow Query Explorer'))) {
+      this.state = {
+        kind: 'unsupported',
+        message:
+          'Slow Query Explorer is disabled in Untrusted Workspaces. Trust this workspace to query server statistics.',
+      };
+      this.changeEmitter.fire(undefined);
+      return;
+    }
+
     this.state = { kind: 'loading' };
     this.changeEmitter.fire(undefined);
 
@@ -119,6 +132,9 @@ export class SlowQueriesTreeProvider
   }
 
   async handleInspect(entry: SlowQueryEntry, mode: ExplainMode): Promise<void> {
+    if (!(await this.ensureTrustedWorkspace('Inspect Slow Query'))) {
+      return;
+    }
     await this.onInspectSlowQuery(entry, mode);
   }
 

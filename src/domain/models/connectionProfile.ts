@@ -1,3 +1,4 @@
+import { UnsafeQueryError } from '../errors/domainErrors.js';
 import {
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
@@ -87,4 +88,131 @@ export function inferDefaultReadOnlyLock(
   environment: ProfileEnvironment,
 ): boolean {
   return environment !== 'local';
+}
+
+function normalizeParsedConnectionUrl(
+  connectionString: string,
+  explicitEngine?: DatabaseEngine,
+): URL | undefined {
+  const engine =
+    explicitEngine ?? detectDatabaseEngineFromUri(connectionString);
+  if (engine === 'sqlite') {
+    return undefined;
+  }
+
+  try {
+    const normalized = connectionString
+      .trim()
+      .replace(/^mysql2:\/\//i, 'mysql://');
+    return new URL(normalized);
+  } catch {
+    return undefined;
+  }
+}
+
+export function extractConnectionHost(
+  connectionString: string,
+  explicitEngine?: DatabaseEngine,
+): string | undefined {
+  const parsed = normalizeParsedConnectionUrl(
+    connectionString,
+    explicitEngine,
+  );
+  const host = parsed?.hostname.trim().toLowerCase();
+  return host && host.length > 0 ? host : undefined;
+}
+
+export function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized === '::1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalized)
+  );
+}
+
+/**
+ * Returns true if a PostgreSQL/MySQL connection string embeds a plaintext password
+ * in userinfo (`user:password@host`) or query parameters (`?password=...`).
+ */
+export function connectionUriHasPlaintextPassword(
+  connectionString: string,
+  explicitEngine?: DatabaseEngine,
+): boolean {
+  const parsed = normalizeParsedConnectionUrl(
+    connectionString,
+    explicitEngine,
+  );
+  if (!parsed) {
+    return false;
+  }
+
+  if (parsed.password.length > 0) {
+    return true;
+  }
+
+  for (const [key, value] of parsed.searchParams.entries()) {
+    const lowerKey = key.toLowerCase();
+    if (
+      (lowerKey === 'password' ||
+        lowerKey === 'passwd' ||
+        lowerKey === 'pass') &&
+      value.length > 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function usesSslNoVerify(
+  connectionString: string,
+  explicitEngine?: DatabaseEngine,
+): boolean {
+  const parsed = normalizeParsedConnectionUrl(
+    connectionString,
+    explicitEngine,
+  );
+  if (!parsed) {
+    return false;
+  }
+  return parsed.searchParams.get('sslmode')?.toLowerCase() === 'no-verify';
+}
+
+export function isRemoteUnsafeSslUri(
+  connectionString: string,
+  explicitEngine?: DatabaseEngine,
+): boolean {
+  if (!usesSslNoVerify(connectionString, explicitEngine)) {
+    return false;
+  }
+  const host = extractConnectionHost(connectionString, explicitEngine);
+  return host !== undefined && !isLoopbackHost(host);
+}
+
+/**
+ * Enforces profile-level transport security invariants (e.g., forbids
+ * `sslmode=no-verify` against non-localhost hosts on production profiles).
+ */
+export function assertSafeProfileConnection(
+  profile: ConnectionProfile | undefined,
+  connectionString: string,
+): void {
+  const engine = profile
+    ? resolveProfileEngine(profile)
+    : detectDatabaseEngineFromUri(connectionString);
+
+  if (
+    profile?.environment === 'production' &&
+    isRemoteUnsafeSslUri(connectionString, engine)
+  ) {
+    throw new UnsafeQueryError(
+      `Production profile "${profile.name}" cannot disable TLS certificate verification (?sslmode=no-verify) on a remote host. Switch to ?sslmode=require.`,
+    );
+  }
 }

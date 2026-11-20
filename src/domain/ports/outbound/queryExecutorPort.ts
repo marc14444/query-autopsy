@@ -24,7 +24,12 @@ export interface QueryExecutorPort {
     parameters: readonly unknown[],
   ): Promise<HypotheticalSimulationOutput>;
 
-  testConnection(connectionString: string): Promise<{ serverVersion: string }>;
+  testConnection(
+    connectionString: string,
+  ): Promise<{
+    serverVersion: string;
+    isSuperuser?: boolean | undefined;
+  }>;
 
   dispose(): Promise<void>;
 }

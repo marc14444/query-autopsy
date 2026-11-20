@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
+import { UnsafeQueryError } from '../../domain/errors/domainErrors.js';
 import {
   type ConnectionProfile,
+  connectionUriHasPlaintextPassword,
   type SaveConnectionProfileInput,
   sanitizeConnectionDisplayTarget,
 } from '../../domain/models/connectionProfile.js';
@@ -149,11 +151,20 @@ export class VsCodeConnectionStore
     }
 
     const config = vscode.workspace.getConfiguration('queryAutopsy');
-    const fallbackDsn = config.get<string>(
-      'postgres.fallbackConnectionString',
-      '',
-    );
-    return fallbackDsn.trim().length > 0 ? fallbackDsn.trim() : undefined;
+    const fallbackDsn = config
+      .get<string>('postgres.fallbackConnectionString', '')
+      .trim();
+    if (!fallbackDsn) {
+      return undefined;
+    }
+
+    if (connectionUriHasPlaintextPassword(fallbackDsn)) {
+      throw new UnsafeQueryError(
+        'Plaintext password detected in "queryAutopsy.postgres.fallbackConnectionString". Remove credentials from settings.json and store them encrypted via "QueryAutopsy: Switch / Configure Database Profile" (SecretStorage).',
+      );
+    }
+
+    return fallbackDsn;
   }
 
   async saveConnectionString(connectionString: string): Promise<void> {
@@ -211,6 +222,10 @@ export class VsCodeConnectionStore
         1000,
       ),
       showRawJson: config.get<boolean>('output.showRawJson', false),
+      redactLiteralsInReports: config.get<boolean>(
+        'privacy.redactLiteralsInReports',
+        false,
+      ),
     };
   }
 

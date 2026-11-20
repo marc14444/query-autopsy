@@ -8,6 +8,7 @@ export interface RuntimeSettings {
   readonly allowWriteAnalyze: boolean;
   readonly seqScanRowThreshold: number;
   readonly showRawJson: boolean;
+  readonly redactLiteralsInReports?: boolean | undefined;
 }
 
 export interface ConnectionConfigPort {

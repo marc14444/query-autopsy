@@ -4,7 +4,10 @@ import {
   UnsafeQueryError,
 } from '../../domain/errors/domainErrors.js';
 import { getEngineAdapter } from '../../domain/engines/engineRegistry.js';
-import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import {
+  assertSafeProfileConnection,
+  resolveProfileEngine,
+} from '../../domain/models/connectionProfile.js';
 import { detectDatabaseEngineFromUri } from '../../domain/models/databaseEngine.js';
 import type {
   SimulateIndexInput,
@@ -67,6 +70,8 @@ export class SimulateIndexService implements SimulateIndexUseCase {
     if (!connectionString) {
       throw new MissingConnectionError();
     }
+
+    assertSafeProfileConnection(activeProfile, connectionString);
 
     this.deps.logger.info('Running HypoPG What-If simulation', {
       statement: validatedIndexSql,

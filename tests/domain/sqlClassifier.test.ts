@@ -148,9 +148,15 @@ describe('validateSafeCreateIndexSql', () => {
     );
   });
 
-  it('rejects non-concurrent indexes, arbitrary DDL, and multi-statement injections', () => {
+  it('rejects non-concurrent indexes, arbitrary UDF expressions, DDL, and multi-statement injections', () => {
     expect(() =>
       validateSafeCreateIndexSql('CREATE INDEX idx_orders_uid ON orders (user_id);'),
+    ).toThrow(UnsafeQueryError);
+
+    expect(() =>
+      validateSafeCreateIndexSql(
+        'CREATE INDEX CONCURRENTLY idx_orders_evil ON orders (evil_udf(email));',
+      ),
     ).toThrow(UnsafeQueryError);
 
     expect(() =>

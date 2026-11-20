@@ -67,7 +67,10 @@ export class MultiEngineQueryExecutor implements QueryExecutorPort {
 
   testConnection(
     connectionString: string,
-  ): Promise<{ serverVersion: string }> {
+  ): Promise<{
+    serverVersion: string;
+    isSuperuser?: boolean | undefined;
+  }> {
     return this.resolveExecutor(connectionString).testConnection(
       connectionString,
     );
