@@ -8,6 +8,7 @@ export interface ClassifiedSql {
   readonly normalizedSql: string;
   readonly kind: SqlStatementKind;
   readonly parameterIndices: readonly number[];
+  readonly leadingKeyword?: string | undefined;
 }
 
 export interface InspectQueryInput {

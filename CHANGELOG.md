@@ -2,6 +2,13 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.3.1] - 2026-11-20
+
+### Fixed & Improved
+- **Actionable DDL & Application-Code Error Guidance**: `InspectQueryService` now names the detected DDL keyword (e.g. `"CREATE TABLE"`, `"CREATE UNIQUE INDEX"`, `"DROP TABLE"`) and explains that EXPLAIN only runs on data queries, and detects when application source code (`await ...`, `import ...`, `const ...`) was selected instead of SQL.
+- **Smart ORM Selection Unwrapping**: Right-click `Inspect Query Performance` in TypeScript/JavaScript/Python/Go files now unwraps single wrapper expressions (e.g. `await queryRunner.query(\`SELECT ...\`)`) automatically via `extractSqlBlocks`, and `SQL_LANGUAGE_IDS` + cursor extraction now pass the document engine dialect (`mysql`, `sqlite`, `postgresql`) so MySQL `\'` escapes and `#` comments do not bleed across statements.
+- **Slow Queries Explorer DDL Filter**: `MultiEngineSlowQueryReader` now filters DDL/maintenance statements (`CREATE`, `ALTER`, `DROP`, `VACUUM`, `ANALYZE`, etc.) from PostgreSQL `pg_stat_statements` and MySQL `performance_schema` results so every listed entry is inspectable.
+
 ## [1.3.0] - 2026-11-20
 
 ### Added (`@query-autopsy/mcp` — Zero-Trust AI-to-DB MCP Firewall)

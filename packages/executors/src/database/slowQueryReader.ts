@@ -1,4 +1,5 @@
 import {
+  classifySqlStatement,
   type DatabaseEngine,
   type FetchSlowQueriesOptions,
   type LoggerPort,
@@ -12,6 +13,15 @@ import { mapMysqlError } from '../mysql/mysqlErrors.js';
 import { buildMysqlConnectionOptions } from '../mysql/mysqlQueryExecutor.js';
 import { mapPostgresError } from '../postgres/pgErrors.js';
 import { buildPgPoolConfig } from '../postgres/pgQueryExecutor.js';
+
+function isInspectableSlowQuery(sql: string, engine: DatabaseEngine): boolean {
+  try {
+    const classified = classifySqlStatement(sql, engine);
+    return classified.kind === 'READ' || classified.kind === 'WRITE';
+  } catch {
+    return false;
+  }
+}
 
 export class MultiEngineSlowQueryReader implements SlowQueryPort {
   constructor(private readonly logger: LoggerPort) {}
@@ -88,6 +98,7 @@ export class MultiEngineSlowQueryReader implements SlowQueryPort {
           AND query NOT ILIKE 'BEGIN%'
           AND query NOT ILIKE 'ROLLBACK%'
           AND query NOT ILIKE 'SET %'
+          AND query !~* '^\s*(CREATE|ALTER|DROP|TRUNCATE|VACUUM|ANALYZE|REINDEX|CLUSTER|GRANT|REVOKE|COMMENT|COPY|LOCK)\b'
         ORDER BY ${orderCol} DESC
         LIMIT $1
       `;
@@ -103,7 +114,9 @@ export class MultiEngineSlowQueryReader implements SlowQueryPort {
         shared_blks_read: string | number;
       }>(sql, [options.limit]);
 
-      const entries: SlowQueryEntry[] = res.rows.map((r, idx) => ({
+      const entries: SlowQueryEntry[] = res.rows
+        .filter((r) => isInspectableSlowQuery(r.query, 'postgresql'))
+        .map((r, idx) => ({
         queryId: r.query_id ?? `pg-${idx}`,
         query: r.query.trim(),
         calls: Number(r.calls) || 0,
@@ -168,6 +181,12 @@ export class MultiEngineSlowQueryReader implements SlowQueryPort {
           AND DIGEST_TEXT IS NOT NULL
           AND UPPER(DIGEST_TEXT) NOT LIKE 'EXPLAIN%'
           AND UPPER(DIGEST_TEXT) NOT LIKE 'SHOW %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'CREATE %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'ALTER %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'DROP %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'TRUNCATE %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'ANALYZE %'
+          AND UPPER(DIGEST_TEXT) NOT LIKE 'OPTIMIZE %'
           AND DIGEST_TEXT NOT LIKE '%performance_schema%'
         ORDER BY ${orderCol} DESC
         LIMIT ?
@@ -175,22 +194,24 @@ export class MultiEngineSlowQueryReader implements SlowQueryPort {
         [options.limit],
       );
 
-      const entries: SlowQueryEntry[] = rows.map((row, idx) => {
-        const rec = row as Record<string, unknown>;
-        return {
-          queryId:
-            typeof rec['digest_id'] === 'string'
-              ? rec['digest_id']
-              : `mysql-${idx}`,
-          query: String(rec['query_text'] ?? '').trim(),
-          calls: Number(rec['calls'] ?? 0) || 0,
-          totalExecTimeMs: Number(rec['total_exec_time_ms'] ?? 0) || 0,
-          meanExecTimeMs: Number(rec['mean_exec_time_ms'] ?? 0) || 0,
-          rows: Number(rec['rows_sent'] ?? 0) || 0,
-          sharedBlksHit: 0,
-          sharedBlksRead: 0,
-        };
-      });
+      const entries: SlowQueryEntry[] = rows
+        .map((row, idx) => {
+          const rec = row as Record<string, unknown>;
+          return {
+            queryId:
+              typeof rec['digest_id'] === 'string'
+                ? rec['digest_id']
+                : `mysql-${idx}`,
+            query: String(rec['query_text'] ?? '').trim(),
+            calls: Number(rec['calls'] ?? 0) || 0,
+            totalExecTimeMs: Number(rec['total_exec_time_ms'] ?? 0) || 0,
+            meanExecTimeMs: Number(rec['mean_exec_time_ms'] ?? 0) || 0,
+            rows: Number(rec['rows_sent'] ?? 0) || 0,
+            sharedBlksHit: 0,
+            sharedBlksRead: 0,
+          };
+        })
+        .filter((entry) => isInspectableSlowQuery(entry.query, 'mysql'));
 
       return {
         supported: true,

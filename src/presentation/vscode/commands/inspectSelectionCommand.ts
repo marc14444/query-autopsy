@@ -1,6 +1,9 @@
 import {
+  classifySqlStatement,
+  type DatabaseEngine,
   DomainError,
   type ExplainMode,
+  extractSqlBlocks,
   extractSqlStatementSpanAtOffset,
   type InspectionReport,
   type InspectQueryUseCase,
@@ -12,7 +15,29 @@ import {
 import * as vscode from 'vscode';
 import type { CodeLensInspectArgs } from '../codelens/sqlCodeLensProvider.js';
 
-const SQL_LANGUAGE_IDS = new Set(['sql', 'postgres', 'pgsql', 'mssql']);
+const SQL_LANGUAGE_IDS = new Set([
+  'sql',
+  'postgres',
+  'pgsql',
+  'mysql',
+  'sqlite',
+  'mssql',
+]);
+
+function resolveDocumentEngineHint(
+  languageId: string,
+  fileName: string,
+): DatabaseEngine {
+  const lowerLang = languageId.toLowerCase();
+  const lowerFile = fileName.toLowerCase();
+  if (lowerLang === 'mysql' || lowerFile.endsWith('.mysql.sql')) {
+    return 'mysql';
+  }
+  if (lowerLang === 'sqlite' || lowerFile.endsWith('.sqlite.sql')) {
+    return 'sqlite';
+  }
+  return 'postgresql';
+}
 
 export interface InspectionTarget {
   readonly uri: vscode.Uri;
@@ -256,14 +281,19 @@ export async function runInspectSelectionCommand(
   );
 
   const isSqlDocument =
-    SQL_LANGUAGE_IDS.has(editor.document.languageId) ||
+    SQL_LANGUAGE_IDS.has(editor.document.languageId.toLowerCase()) ||
     editor.document.fileName.toLowerCase().endsWith('.sql');
+  const engineHint = resolveDocumentEngineHint(
+    editor.document.languageId,
+    editor.document.fileName,
+  );
 
   if (!rawSql.trim() && selection.isEmpty && isSqlDocument) {
     const cursorOffset = editor.document.offsetAt(selection.active);
     const span = extractSqlStatementSpanAtOffset(
       editor.document.getText(),
       cursorOffset,
+      engineHint,
     );
     if (span) {
       rawSql = span.sql;
@@ -271,6 +301,38 @@ export async function runInspectSelectionCommand(
         editor.document.positionAt(span.start),
         editor.document.positionAt(span.end),
       );
+    }
+  } else if (rawSql.trim() && !selection.isEmpty && !isSqlDocument) {
+    // If user selected surrounding TypeORM/Prisma/Python/Go code (e.g. `await queryRunner.query(\`SELECT ...\`)`),
+    // unwrap automatically when the selection yields a single inspectable SQL query.
+    let rawIsDirectSql = false;
+    try {
+      rawIsDirectSql = classifySqlStatement(rawSql, engineHint).kind !== 'UNKNOWN';
+    } catch {
+      rawIsDirectSql = false;
+    }
+
+    if (!rawIsDirectSql) {
+      const extracted = extractSqlBlocks(
+        rawSql,
+        editor.document.languageId,
+        editor.document.fileName,
+      );
+      if (extracted.length === 1) {
+        const block = extracted[0]!;
+        rawSql = block.sql;
+        const startLine = selection.start.line + block.startLine;
+        const startChar =
+          block.startLine === 0
+            ? selection.start.character + block.startColumn
+            : block.startColumn;
+        const endLine = selection.start.line + block.endLine;
+        const endChar =
+          block.endLine === 0
+            ? selection.start.character + block.endColumn
+            : block.endColumn;
+        targetRange = new vscode.Range(startLine, startChar, endLine, endChar);
+      }
     }
   }
 

@@ -156,7 +156,7 @@ export function formatSarifReports(
         tool: {
           driver: {
             name: 'QueryAutopsy',
-            version: '1.3.0',
+            version: '1.3.1',
             informationUri: 'https://github.com/marc14444/query-autopsy',
             rules: Array.from(rulesMap.values()),
           },
@@ -277,7 +277,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   if (first === '-v' || first === '--version') {
-    io.stdout('1.3.0\n');
+    io.stdout('1.3.1\n');
     return 0;
   }
 

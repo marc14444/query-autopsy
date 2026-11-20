@@ -278,4 +278,22 @@ describe('InspectQueryService (Application Use Case)', () => {
       'alice@corp.com',
     );
   });
+
+  it('names the DDL keyword on schema migrations and gives actionable guidance when application code is selected', async () => {
+    const { service } = createMocks();
+
+    await expect(
+      service.execute({
+        rawSql: 'CREATE UNIQUE INDEX "uq_card" ON "cards"."card" ("id");',
+        mode: 'estimate',
+      }),
+    ).rejects.toThrow(/"CREATE UNIQUE INDEX" is a schema DDL statement/);
+
+    await expect(
+      service.execute({
+        rawSql: "await queryRunner.query('CREATE TABLE foo (id int)');",
+        mode: 'estimate',
+      }),
+    ).rejects.toThrow(/Selected application code \(starts with "AWAIT"\)/);
+  });
 });

@@ -123,6 +123,36 @@ function determineStatementKind(
   return 'UNKNOWN';
 }
 
+function extractLeadingLabel(
+  words: readonly string[],
+  kind: SqlStatementKind,
+): string | undefined {
+  let idx = 0;
+  while (idx < words.length && words[idx] === '(') {
+    idx++;
+  }
+  const first = words[idx];
+  if (!first) {
+    return undefined;
+  }
+  if (kind === 'DDL') {
+    const second = words[idx + 1];
+    const third = words[idx + 2];
+    if (
+      first === 'CREATE' &&
+      (second === 'UNIQUE' || second === 'OR' || second === 'MATERIALIZED') &&
+      third &&
+      /^[A-Z_]+$/.test(third)
+    ) {
+      return `${first} ${second} ${third}`;
+    }
+    if (second && /^[A-Z_]+$/.test(second)) {
+      return `${first} ${second}`;
+    }
+  }
+  return first;
+}
+
 export function classifySqlStatement(
   rawSql: string,
   engine: DatabaseEngine = 'postgresql',
@@ -200,10 +230,13 @@ export function classifySqlStatement(
     }
   }
 
+  const leadingKeyword = extractLeadingLabel(words, kind);
+
   return {
     normalizedSql,
     kind,
     parameterIndices: Array.from(parameterSet).sort((a, b) => a - b),
+    ...(leadingKeyword ? { leadingKeyword } : {}),
   };
 }
 

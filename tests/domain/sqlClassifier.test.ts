@@ -111,6 +111,23 @@ describe('extractSqlStatementAtOffset', () => {
     const commentOffset = sampleFile.indexOf('First query');
     expect(extractSqlStatementAtOffset(sampleFile, commentOffset)).toBeUndefined();
   });
+
+  it('respects MySQL backslash-escaped quotes and # comments when isolating statements', () => {
+    const mysqlScript = [
+      'CREATE TABLE notes (id INT PRIMARY KEY, body TEXT);',
+      '# insert with escaped apostrophe',
+      "INSERT INTO notes (body) VALUES ('don\\'t break');",
+      'SELECT id FROM notes WHERE id = 1;',
+    ].join('\n');
+
+    const selectOffset = mysqlScript.indexOf('FROM notes WHERE');
+    expect(
+      extractSqlStatementAtOffset(mysqlScript, selectOffset, 'mysql'),
+    ).toBe('SELECT id FROM notes WHERE id = 1;');
+
+    const ddl = classifySqlStatement('CREATE TABLE cards (id UUID);');
+    expect(ddl.leadingKeyword).toBe('CREATE TABLE');
+  });
 });
 
 describe('validateSafeCreateIndexSql', () => {
