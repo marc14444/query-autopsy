@@ -2,6 +2,14 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.6.0] - 2026-11-20
+
+### Added (VS Code Runtime Trace & N+1 Explorer)
+- **Explorer Sidebar View (`QueryAutopsy: Runtime Traces (N+1)`)**: Added `TraceExplorerTreeProvider` surfacing `N_PLUS_ONE_BURST`, `SLOW_TRACE_QUERY`, and top cumulative queries directly inside VS Code from `.query-autopsy/*.{jsonl,ndjson}` with live debounced `FileSystemWatcher` auto-refresh (100% offline parsing, zero silent database calls).
+- **1-Click Jump to Source & Parameterized Trace EXPLAIN**: Clicking any N+1 or slow finding jumps straight to the originating PHP/TypeScript/Python/Go `file:line`, and inline `$(eye)` Estimate / `$(play)` ANALYZE actions open interactive execution plan Webviews (automatically forwarding recorded bindings when present and enforcing Workspace Trust).
+- **Workspace Trace Security Guards (`workspaceTraceDiscovery.ts`)**: Constrained trace file discovery/reads and `file:line` jump resolution with `fs.realpath` workspace confinement, `.jsonl`/`.ndjson` extension checks, `10 MiB` size caps, and anti-symlink escape guards.
+- **Configuration Settings**: Added `queryAutopsy.traces.nPlusOneThreshold`, `queryAutopsy.traces.slowQueryMsThreshold`, `queryAutopsy.refreshTraces`, and `queryAutopsy.openTraceFile`.
+
 ## [1.5.0] - 2026-11-20
 
 ### Added (`marc14444/laravel-query-autopsy` — Lightweight Dev-Only Laravel Bridge)
