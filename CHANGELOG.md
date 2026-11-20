@@ -2,6 +2,14 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.3.0] - 2026-11-20
+
+### Added (`@query-autopsy/mcp` — Zero-Trust AI-to-DB MCP Firewall)
+- **Zero-Dependency Local `stdio` MCP Server (`npx @query-autopsy/mcp`)**: Connects Antigravity, Cursor, Claude Code, and Windsurf safely to database execution plans with zero open TCP ports or external HTTP tunnels.
+- **Strictly Bounded Read-Only Tools**: Exposes `autopsy_check_sql` (offline static audit), `autopsy_explain` (`estimate` default; `analyze` gated by `--allow-analyze` on non-production targets), `autopsy_simulate_index` (HypoPG what-if), and `autopsy_list_slow_queries` (`pg_stat_statements` / `performance_schema`).
+- **Zero-Trust Security Middleware**: Strictly excludes `ApplyIndexUseCase` (`CREATE INDEX`), `allowWriteAnalyze`, raw SQL tools (`run_sql`), and LLM-supplied connection strings (SSRF prevention); strips prompt-injection SQL comments, redacts PII literals by default (`--no-redact` opt-out), and sanitizes SQL cast/constraint errors via `sanitizeSqlError`.
+- **Shared Core Adapter**: Extracted `StaticConnectionConfig` into `@query-autopsy/core` for stateless CLI and MCP use cases.
+
 ## [1.2.0] - 2026-11-20
 
 ### Added & Refactored (Monorepo Core & Language-Agnostic CLI)

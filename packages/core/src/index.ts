@@ -58,6 +58,7 @@ export * from './domain/services/sqlClassifier.js';
 export * from './domain/services/sqlSecurity.js';
 export * from './domain/services/sqlTokenizer.js';
 
+export * from './application/config/staticConnectionConfig.js';
 export * from './application/usecases/applyIndexService.js';
 export * from './application/usecases/fetchSlowQueriesService.js';
 export * from './application/usecases/inspectQueryService.js';

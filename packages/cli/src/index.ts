@@ -5,8 +5,6 @@ import { parseArgs } from 'node:util';
 import {
   assertSafeSqlConstructs,
   classifySqlStatement,
-  type ConnectionConfigPort,
-  type ConnectionProfile,
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
   type DiagnosticFinding,
@@ -17,7 +15,6 @@ import {
   extractSqlBlocks,
   extractSqlStatementSpans,
   formatMarkdownPrReport,
-  inferDefaultReadOnlyLock,
   type InspectionReport,
   InspectQueryService,
   isLoopbackHost,
@@ -27,9 +24,8 @@ import {
   type QueryExecutorPort,
   type ReportPresenterPort,
   type RuntimeSettings,
-  sanitizeConnectionDisplayTarget,
   sanitizeSqlError,
-  type SaveConnectionProfileInput,
+  StaticConnectionConfig,
 } from '@query-autopsy/core';
 import { MultiEngineQueryExecutor } from '@query-autopsy/executors';
 
@@ -160,7 +156,7 @@ export function formatSarifReports(
         tool: {
           driver: {
             name: 'QueryAutopsy',
-            version: '1.2.0',
+            version: '1.3.0',
             informationUri: 'https://github.com/marc14444/query-autopsy',
             rules: Array.from(rulesMap.values()),
           },
@@ -169,74 +165,6 @@ export function formatSarifReports(
       },
     ],
   };
-}
-
-class EphemeralConnectionConfig implements ConnectionConfigPort {
-  private readonly profile: ConnectionProfile;
-
-  constructor(
-    private readonly connectionString: string | undefined,
-    private readonly runtimeSettings: RuntimeSettings,
-    environment?: ProfileEnvironment,
-    explicitEngine?: DatabaseEngine,
-  ) {
-    const engine =
-      explicitEngine ??
-      (connectionString
-        ? detectDatabaseEngineFromUri(connectionString)
-        : 'postgresql');
-    const host = connectionString
-      ? extractConnectionHost(connectionString, engine)
-      : undefined;
-    const resolvedEnv: ProfileEnvironment =
-      environment ?? (host && !isLoopbackHost(host) ? 'staging' : 'local');
-
-    this.profile = {
-      id: 'cli-target',
-      name: connectionString
-        ? sanitizeConnectionDisplayTarget(connectionString, engine)
-        : 'cli-offline',
-      engine,
-      environment: resolvedEnv,
-      readOnlyLocked: inferDefaultReadOnlyLock(resolvedEnv),
-      displayTarget: connectionString
-        ? sanitizeConnectionDisplayTarget(connectionString, engine)
-        : 'offline',
-    };
-  }
-
-  async getConnectionString(): Promise<string | undefined> {
-    return this.connectionString;
-  }
-
-  async saveConnectionString(_connectionString: string): Promise<void> {}
-  async clearConnectionString(): Promise<void> {}
-
-  async getActiveProfile(): Promise<ConnectionProfile | undefined> {
-    return this.profile;
-  }
-
-  async listProfiles(): Promise<readonly ConnectionProfile[]> {
-    return [this.profile];
-  }
-
-  async saveProfile(
-    _profile: SaveConnectionProfileInput,
-    _connectionString: string,
-  ): Promise<ConnectionProfile> {
-    return this.profile;
-  }
-
-  async setActiveProfile(_profileId: string): Promise<void> {}
-  async setProfileReadOnlyLock(
-    _profileId: string,
-    _readOnlyLocked: boolean,
-  ): Promise<void> {}
-  async deleteProfile(_profileId: string): Promise<void> {}
-
-  getRuntimeSettings(): RuntimeSettings {
-    return this.runtimeSettings;
-  }
 }
 
 function createNoopPresenter(): ReportPresenterPort {
@@ -349,7 +277,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   if (first === '-v' || first === '--version') {
-    io.stdout('1.2.0\n');
+    io.stdout('1.3.0\n');
     return 0;
   }
 
@@ -467,12 +395,18 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       redactLiteralsInReports: redact,
     };
 
-    const config = new EphemeralConnectionConfig(
-      dsn,
+    const resolvedEngine = engineOverride ?? detectDatabaseEngineFromUri(dsn);
+    const resolvedHost = extractConnectionHost(dsn, resolvedEngine);
+    const resolvedEnv: ProfileEnvironment =
+      envArg ?? (resolvedHost && !isLoopbackHost(resolvedHost) ? 'staging' : 'local');
+
+    const config = new StaticConnectionConfig({
+      connectionString: dsn,
       runtimeSettings,
-      envArg,
-      engineOverride,
-    );
+      environment: resolvedEnv,
+      engine: resolvedEngine,
+      profileId: 'cli-target',
+    });
     const executor = io.createExecutor
       ? io.createExecutor(logger)
       : new MultiEngineQueryExecutor(logger, {

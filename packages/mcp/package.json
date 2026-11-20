@@ -1,0 +1,50 @@
+{
+  "name": "@query-autopsy/mcp",
+  "version": "1.3.0",
+  "description": "Zero-trust local stdio MCP server giving AI coding agents safe, read-only SQL EXPLAIN, HypoPG index simulation, and slow-query diagnostics without raw SQL access.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "query-autopsy-mcp": "./bin/query-autopsy-mcp.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marc14444/query-autopsy.git",
+    "directory": "packages/mcp"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "explain",
+    "ai-safety",
+    "vibecoding"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@query-autopsy/core": "1.3.0",
+    "@query-autopsy/executors": "1.3.0"
+  }
+}

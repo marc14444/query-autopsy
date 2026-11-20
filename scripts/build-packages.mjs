@@ -36,3 +36,7 @@ writeFormatMarker('packages/executors/dist/esm', 'module');
 // 3. @query-autopsy/cli (ESM binary + library)
 mkdirSync(dirname('packages/cli/dist/index.js'), { recursive: true });
 runTsc('packages/cli/tsconfig.json');
+
+// 4. @query-autopsy/mcp (Zero-Trust stdio MCP server)
+mkdirSync(dirname('packages/mcp/dist/index.js'), { recursive: true });
+runTsc('packages/mcp/tsconfig.json');

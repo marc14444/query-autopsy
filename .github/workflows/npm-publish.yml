@@ -1,4 +1,4 @@
-name: Publish npm Packages (@query-autopsy/core, executors, cli)
+name: Publish npm Packages (@query-autopsy/core, executors, cli, mcp)
 
 on:
   workflow_dispatch:
@@ -30,4 +30,4 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm publish --workspace=@query-autopsy/core --workspace=@query-autopsy/executors --workspace=@query-autopsy/cli --access public --provenance
+          npm publish --workspace=@query-autopsy/core --workspace=@query-autopsy/executors --workspace=@query-autopsy/cli --workspace=@query-autopsy/mcp --access public --provenance
