@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate PHP sources, Composer manifest & unit tests
         run: |
@@ -61,6 +62,7 @@ jobs:
           echo "::add-mask::${AUTH_B64}"
           EXTRA_HEADER="http.${MIRROR_URL}.extraheader=AUTHORIZATION: basic ${AUTH_B64}"
 
+          git config --local --unset-all http.https://github.com/.extraheader || true
           git subtree split --prefix=packages/laravel -b split-laravel
           git -c "$EXTRA_HEADER" push --force "$MIRROR_URL" split-laravel:main
 
