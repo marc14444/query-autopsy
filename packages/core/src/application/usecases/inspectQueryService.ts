@@ -24,6 +24,29 @@ import {
   redactSqlLiterals,
 } from '../../domain/services/sqlSecurity.js';
 
+const APPLICATION_CODE_KEYWORDS = new Set([
+  'IMPORT',
+  'EXPORT',
+  'CONST',
+  'LET',
+  'VAR',
+  'FUNCTION',
+  'ASYNC',
+  'AWAIT',
+  'CLASS',
+  'INTERFACE',
+  'TYPE',
+  'PUBLIC',
+  'PRIVATE',
+  'PROTECTED',
+  'RETURN',
+  'DEF',
+  'PACKAGE',
+  'FUNC',
+  'USE',
+  'NAMESPACE',
+]);
+
 export interface InspectQueryDependencies {
   readonly connectionConfig: ConnectionConfigPort;
   readonly queryExecutor: QueryExecutorPort;
@@ -54,14 +77,23 @@ export class InspectQueryService implements InspectQueryUseCase {
       settings.allowWriteAnalyze && !isReadOnlyLocked;
 
     if (classified.kind === 'DDL') {
+      const ddlLabel = classified.leadingKeyword ?? 'DDL';
       throw new UnsafeQueryError(
-        'DDL statements (CREATE, ALTER, DROP, TRUNCATE, etc.) cannot be inspected via EXPLAIN.',
+        `"${ddlLabel}" is a schema DDL statement (CREATE, ALTER, DROP, TRUNCATE, etc.) and cannot be inspected via EXPLAIN. Databases only generate EXPLAIN plans for data queries (SELECT, WITH, INSERT, UPDATE, DELETE).`,
       );
     }
 
     if (classified.kind === 'UNKNOWN') {
+      const lead = classified.leadingKeyword;
+      if (lead && APPLICATION_CODE_KEYWORDS.has(lead)) {
+        throw new UnsafeQueryError(
+          `Selected application code (starts with "${lead}") instead of a SQL query. Select only the SQL string (SELECT / WITH / INSERT / UPDATE / DELETE) or click the QueryAutopsy CodeLens above the query.`,
+        );
+      }
       throw new UnsafeQueryError(
-        'Unsupported SQL statement. QueryAutopsy supports SELECT, WITH, VALUES, and DML (INSERT/UPDATE/DELETE).',
+        lead
+          ? `Unsupported statement starting with "${lead}". QueryAutopsy inspects SQL data queries (SELECT, WITH, VALUES, INSERT, UPDATE, DELETE).`
+          : 'Unsupported SQL statement. QueryAutopsy supports SELECT, WITH, VALUES, and DML (INSERT/UPDATE/DELETE).',
       );
     }
 

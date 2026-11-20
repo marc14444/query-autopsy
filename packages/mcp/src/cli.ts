@@ -141,7 +141,7 @@ export async function main(
   }
 
   if (parsed.version) {
-    process.stderr.write('1.3.0\n');
+    process.stderr.write('1.3.1\n');
     return 0;
   }
 

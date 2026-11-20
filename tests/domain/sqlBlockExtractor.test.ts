@@ -131,4 +131,16 @@ describe('extractSqlBlocks', () => {
     expect(blocks[0]?.sql).toBe('SELECT email FROM users WHERE id = $1');
     expect(blocks[1]?.sql).toContain('WHERE user_id = $1');
   });
+
+  it('extracts TypeORM queryRunner data queries while skipping DDL schema statements', () => {
+    const typeormFile = `
+      await queryRunner.query(\`CREATE TABLE "cards"."card" ("id" UUID NOT NULL)\`);
+      await queryRunner.query(\`
+        SELECT id, status FROM "cards"."card" WHERE "identity_id" = $1 AND "deleted_at" IS NULL
+      \`);
+    `;
+    const blocks = extractSqlBlocks(typeormFile, 'typescript', 'cardRepo.ts');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.sql).toContain('FROM "cards"."card"');
+  });
 });
