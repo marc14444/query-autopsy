@@ -1,18 +1,18 @@
 import { randomBytes } from 'node:crypto';
-import * as vscode from 'vscode';
-import type { InspectionReport } from '../../../domain/models/diagnostic.js';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
-import type { SimulateIndexResult } from '../../../domain/ports/inbound/simulateIndexUseCase.js';
-import type { LoggerPort } from '../../../domain/ports/outbound/loggerPort.js';
-import type { ReportPresenterPort } from '../../../domain/ports/outbound/reportPresenterPort.js';
-import { formatMarkdownPrReport } from '../../../domain/services/markdownReportFormatter.js';
-import { buildNodeExplanationMap } from '../../../domain/services/nodeExplainer.js';
 import {
+  buildNodeExplanationMap,
   computePlanDiff,
+  type ExplainMode,
+  formatMarkdownPrReport,
+  type InspectionReport,
+  type LoggerPort,
   normalizeSqlFingerprint,
   type PlanComparisonSummary,
+  type ReportPresenterPort,
   selectDefaultBaselineIndex,
-} from '../../../domain/services/planDiff.js';
+  type SimulateIndexResult,
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 import type {
   BaselineRunOption,
   ExtensionToWebviewMessage,

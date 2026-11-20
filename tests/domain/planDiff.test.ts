@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import type { InspectionReport } from '../../src/domain/models/diagnostic.js';
-import { formatMarkdownPrReport } from '../../src/domain/services/markdownReportFormatter.js';
 import {
   computePlanDiff,
+  formatMarkdownPrReport,
+  type InspectionReport,
+  parsePostgreSqlPlan,
   selectDefaultBaselineIndex,
-} from '../../src/domain/services/planDiff.js';
-import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('planDiff & markdownReportFormatter', () => {
   const beforePlan = parsePostgreSqlPlan(

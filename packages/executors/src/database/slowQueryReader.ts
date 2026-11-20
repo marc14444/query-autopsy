@@ -1,15 +1,13 @@
+import {
+  type DatabaseEngine,
+  type FetchSlowQueriesOptions,
+  type LoggerPort,
+  type SlowQueryEntry,
+  type SlowQueryFetchResult,
+  type SlowQueryPort,
+} from '@query-autopsy/core';
 import mysql, { type RowDataPacket } from 'mysql2/promise';
 import { Client } from 'pg';
-import type { DatabaseEngine } from '../../domain/models/databaseEngine.js';
-import type {
-  SlowQueryEntry,
-  SlowQueryFetchResult,
-} from '../../domain/models/slowQuery.js';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type {
-  FetchSlowQueriesOptions,
-  SlowQueryPort,
-} from '../../domain/ports/outbound/slowQueryPort.js';
 import { mapMysqlError } from '../mysql/mysqlErrors.js';
 import { buildMysqlConnectionOptions } from '../mysql/mysqlQueryExecutor.js';
 import { mapPostgresError } from '../postgres/pgErrors.js';

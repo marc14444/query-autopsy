@@ -1,9 +1,11 @@
+import {
+  type ConnectionConfigPort,
+  type LoggerPort,
+  type QueryExecutorPort,
+  SimulateIndexService,
+  UnsafeQueryError,
+} from '@query-autopsy/core';
 import { describe, expect, it, vi } from 'vitest';
-import { SimulateIndexService } from '../../src/application/usecases/simulateIndexService.js';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
-import type { ConnectionConfigPort } from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { QueryExecutorPort } from '../../src/domain/ports/outbound/queryExecutorPort.js';
 
 function createMocks(options?: { supported?: boolean }) {
   const connectionConfig: ConnectionConfigPort = {

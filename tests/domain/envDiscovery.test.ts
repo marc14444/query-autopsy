@@ -1,15 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import {
-  sanitizeConnectionDisplayTarget,
-  sanitizePostgresDisplayTarget,
-} from '../../src/domain/models/connectionProfile.js';
 import {
   extractDatabaseUrisFromComposeContent,
   extractDatabaseUrisFromEnvContent,
   extractPostgresUrisFromComposeContent,
   extractPostgresUrisFromEnvContent,
   parseEnvKeyValueMap,
-} from '../../src/domain/services/envDiscovery.js';
+  sanitizeConnectionDisplayTarget,
+  sanitizePostgresDisplayTarget,
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('sanitizePostgresDisplayTarget', () => {
   it('strips username and password from PostgreSQL URIs', () => {

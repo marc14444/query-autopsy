@@ -2,6 +2,13 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.2.0] - 2026-11-20
+
+### Added & Refactored (Monorepo Core & Language-Agnostic CLI)
+- **npm Workspaces Extraction (`@query-autopsy/core` & `@query-autopsy/executors`)**: Extracted zero-runtime-dependency domain/application logic into `packages/core` and database drivers (`pg`, `mysql2`, `sql.js`) into `packages/executors` with zero regressions to the VS Code / Open VSX extension bundle.
+- **Language-Agnostic CLI & CI Gate (`@query-autopsy/cli`)**: Added `query-autopsy explain`, `query-autopsy ci`, and offline `query-autopsy check` supporting `--sql`, `--file`, `--dir`, and `--stdin` across `.sql`, TypeScript/JavaScript, Python, and Go, with `markdown`, `json`, and **SARIF 2.1.0** outputs, `--fail-on` exit gating, and `--redact` PII scrubbing.
+- **npm OIDC Provenance Workflow**: Added `.github/workflows/npm-publish.yml` for opt-in workspace publishing with `--provenance`.
+
 ## [1.1.0] - 2026-11-20
 
 ### Security & Privacy Hardening

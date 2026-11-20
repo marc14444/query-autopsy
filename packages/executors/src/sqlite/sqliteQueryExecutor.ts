@@ -1,18 +1,16 @@
 import { constants as fsConstants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import {
+  type ExplainExecutionRequest,
+  type HypotheticalSimulationOutput,
+  type LoggerPort,
+  QueryExecutionError,
+  type QueryExecutorPort,
+  type SqliteEqpRow,
+  type SqliteRawPlanPayload,
+} from '@query-autopsy/core';
 import initSqlJs, { type BindParams, type Database, type SqlJsStatic, type SqlValue } from 'sql.js';
-import type {
-  SqliteEqpRow,
-  SqliteRawPlanPayload,
-} from '../../domain/engines/sqlite/sqlitePlanParser.js';
-import { QueryExecutionError } from '../../domain/errors/domainErrors.js';
-import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type {
-  HypotheticalSimulationOutput,
-  QueryExecutorPort,
-} from '../../domain/ports/outbound/queryExecutorPort.js';
 
 interface ResolvedSqliteTarget {
   readonly isMemory: boolean;
@@ -69,12 +67,27 @@ function toBindParams(parameters: readonly unknown[]): BindParams | undefined {
   });
 }
 
-async function resolveWasmBinary(): Promise<Uint8Array> {
-  const candidates = [
-    path.join(__dirname, 'sql-wasm.wasm'),
-    path.join(process.cwd(), 'dist', 'sql-wasm.wasm'),
-    path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'),
-  ];
+async function resolveWasmBinary(explicitWasmPath?: string): Promise<Uint8Array> {
+  const candidates: string[] = [];
+  if (explicitWasmPath) {
+    candidates.push(explicitWasmPath);
+  }
+  if (typeof __dirname === 'string') {
+    candidates.push(path.join(__dirname, 'sql-wasm.wasm'));
+  }
+
+  let dir = process.cwd();
+  for (let depth = 0; depth < 6; depth++) {
+    candidates.push(
+      path.join(dir, 'dist', 'sql-wasm.wasm'),
+      path.join(dir, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'),
+    );
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
 
   for (const candidate of candidates) {
     try {
@@ -91,21 +104,30 @@ async function resolveWasmBinary(): Promise<Uint8Array> {
   );
 }
 
+export interface SqliteExecutorOptions {
+  readonly wasmPath?: string | undefined;
+}
+
 export class SqliteQueryExecutor implements QueryExecutorPort {
   private sqlJsPromise: Promise<SqlJsStatic> | undefined;
 
-  constructor(private readonly logger: LoggerPort) {}
+  constructor(
+    private readonly logger: LoggerPort,
+    private readonly options?: SqliteExecutorOptions,
+  ) {}
 
   private async getSqlJs(): Promise<SqlJsStatic> {
     if (!this.sqlJsPromise) {
-      this.sqlJsPromise = resolveWasmBinary().then((wasmBinary) => {
-        const arrayBuffer = new ArrayBuffer(wasmBinary.byteLength);
-        new Uint8Array(arrayBuffer).set(wasmBinary);
-        return initSqlJs({
-          wasmBinary: arrayBuffer,
-          useOldExtensionFunctions: false,
-        });
-      });
+      this.sqlJsPromise = resolveWasmBinary(this.options?.wasmPath).then(
+        (wasmBinary) => {
+          const arrayBuffer = new ArrayBuffer(wasmBinary.byteLength);
+          new Uint8Array(arrayBuffer).set(wasmBinary);
+          return initSqlJs({
+            wasmBinary: arrayBuffer,
+            useOldExtensionFunctions: false,
+          });
+        },
+      );
     }
     return this.sqlJsPromise;
   }

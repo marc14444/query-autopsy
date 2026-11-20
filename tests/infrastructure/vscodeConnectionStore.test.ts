@@ -1,5 +1,5 @@
+import { UnsafeQueryError } from '@query-autopsy/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
 
 const mockConfigGet = vi.hoisted(() => vi.fn());
 

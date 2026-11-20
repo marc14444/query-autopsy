@@ -1,5 +1,5 @@
+import type { LoggerPort } from '@query-autopsy/core';
 import type * as vscode from 'vscode';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
 
 export class OutputChannelLogger implements LoggerPort {
   constructor(private readonly channel: vscode.OutputChannel) {}

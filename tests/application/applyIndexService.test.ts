@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ApplyIndexService } from '../../src/application/usecases/applyIndexService.js';
 import {
+  ApplyIndexService,
+  type ConnectionConfigPort,
+  type ConnectionProfile,
+  type LoggerPort,
   MissingConnectionError,
+  type QueryExecutorPort,
   UnsafeQueryError,
-} from '../../src/domain/errors/domainErrors.js';
-import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
-import type { ConnectionConfigPort } from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { QueryExecutorPort } from '../../src/domain/ports/outbound/queryExecutorPort.js';
+} from '@query-autopsy/core';
+import { describe, expect, it, vi } from 'vitest';
 
 function createDeps(options?: {
   connectionString?: string | undefined;

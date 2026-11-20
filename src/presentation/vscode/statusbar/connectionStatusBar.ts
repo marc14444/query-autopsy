@@ -1,11 +1,11 @@
-import * as vscode from 'vscode';
-import { resolveProfileEngine } from '../../../domain/models/connectionProfile.js';
 import {
+  type ConnectionConfigPort,
   detectDatabaseEngineFromUri,
   formatEngineLabel,
   formatEngineShortCode,
-} from '../../../domain/models/databaseEngine.js';
-import type { ConnectionConfigPort } from '../../../domain/ports/outbound/connectionConfigPort.js';
+  resolveProfileEngine,
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 
 export class ConnectionStatusBar implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;

@@ -1,13 +1,13 @@
+import {
+  type ConnectionConfigPort,
+  formatEngineLabel,
+  type InspectionReport,
+  type PlanNode,
+  type ReportPresenterPort,
+  type DiagnosticFinding,
+  type DiagnosticSeverity,
+} from '@query-autopsy/core';
 import type * as vscode from 'vscode';
-import { formatEngineLabel } from '../../domain/models/databaseEngine.js';
-import type {
-  DiagnosticFinding,
-  DiagnosticSeverity,
-  InspectionReport,
-} from '../../domain/models/diagnostic.js';
-import type { PlanNode } from '../../domain/models/executionPlan.js';
-import type { ConnectionConfigPort } from '../../domain/ports/outbound/connectionConfigPort.js';
-import type { ReportPresenterPort } from '../../domain/ports/outbound/reportPresenterPort.js';
 
 const SEVERITY_BADGE: Record<DiagnosticSeverity, string> = {
   critical: '[CRITICAL]',

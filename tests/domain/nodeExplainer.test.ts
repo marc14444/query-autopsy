@@ -1,6 +1,8 @@
+import {
+  buildNodeExplanationMap,
+  parsePostgreSqlPlan,
+} from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
-import { buildNodeExplanationMap } from '../../src/domain/services/nodeExplainer.js';
-import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
 
 describe('nodeExplainer', () => {
   it('generates clear plain-English explanations for each node in the plan', () => {

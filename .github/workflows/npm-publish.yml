@@ -1,0 +1,33 @@
+name: Publish npm Packages (@query-autopsy/core, executors, cli)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-npm:
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run check-types
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build:packages
+      - name: Publish workspace packages with OIDC provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish --workspace=@query-autopsy/core --workspace=@query-autopsy/executors --workspace=@query-autopsy/cli --access public --provenance

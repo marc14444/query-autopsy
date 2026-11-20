@@ -1,16 +1,16 @@
+import {
+  type ExplainExecutionRequest,
+  type HypotheticalSimulationOutput,
+  InvalidPlanError,
+  type LoggerPort,
+  type QueryExecutorPort,
+} from '@query-autopsy/core';
 import mysql, {
   type ConnectionOptions,
   type Pool,
   type PoolOptions,
   type RowDataPacket,
 } from 'mysql2/promise';
-import { InvalidPlanError } from '../../domain/errors/domainErrors.js';
-import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type {
-  HypotheticalSimulationOutput,
-  QueryExecutorPort,
-} from '../../domain/ports/outbound/queryExecutorPort.js';
 import { mapMysqlError } from './mysqlErrors.js';
 
 export function buildMysqlConnectionOptions(connectionString: string): ConnectionOptions {

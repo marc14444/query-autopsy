@@ -1,11 +1,13 @@
+import {
+  type ConnectionConfigPort,
+  type ConnectionProfile,
+  FetchSlowQueriesService,
+  type LoggerPort,
+  MissingConnectionError,
+  type SlowQueryFetchResult,
+  type SlowQueryPort,
+} from '@query-autopsy/core';
 import { describe, expect, it, vi } from 'vitest';
-import { FetchSlowQueriesService } from '../../src/application/usecases/fetchSlowQueriesService.js';
-import { MissingConnectionError } from '../../src/domain/errors/domainErrors.js';
-import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
-import type { SlowQueryFetchResult } from '../../src/domain/models/slowQuery.js';
-import type { ConnectionConfigPort } from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { SlowQueryPort } from '../../src/domain/ports/outbound/slowQueryPort.js';
 
 function createMocks(options?: {
   connectionString?: string | undefined;

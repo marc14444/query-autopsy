@@ -8,16 +8,18 @@ Strict inward dependency rule — **NO EXCEPTIONS**:
 
 | Layer | Directory | Allowed Dependencies | Forbidden Dependencies |
 | :--- | :--- | :--- | :--- |
-| **Domain** | `src/domain/` | `src/domain/` only | `vscode`, `pg`, `node:fs`, `application/`, `infrastructure/`, `presentation/` |
-| **Application** | `src/application/` | `src/domain/` only | `vscode`, `pg`, `infrastructure/`, `presentation/` |
-| **Infrastructure** | `src/infrastructure/` | `src/domain/` (models, errors, outbound ports), `pg`, `vscode`, Node stdlib | `presentation/`, `application/` |
-| **Presentation** | `src/presentation/` | `src/domain/` (inbound ports, errors, models), `vscode`, `container.ts` wires `application/` + `infrastructure/` | Direct SQL queries or `pg` imports outside `container.ts` |
-| **Entrypoint** | `src/extension.ts` | `src/presentation/vscode/container.ts`, `vscode` types | Business logic or direct adapter instantiation |
+| **Domain** | `packages/core/src/domain/` | `packages/core/src/domain/` only | `vscode`, `pg`, `mysql2`, `sql.js`, `node:fs`, `application/`, `executors/`, `presentation/` |
+| **Application** | `packages/core/src/application/` | `packages/core/src/domain/` only | `vscode`, `pg`, `mysql2`, `sql.js`, `executors/`, `presentation/` |
+| **Executors** | `packages/executors/src/` | `@query-autopsy/core`, `pg`, `mysql2`, `sql.js`, Node stdlib | `vscode`, `presentation/` |
+| **CLI / CI** | `packages/cli/src/` | `@query-autopsy/core`, `@query-autopsy/executors`, Node stdlib | `vscode`, `presentation/` |
+| **Infrastructure (IDE)** | `src/infrastructure/vscode/` | `@query-autopsy/core`, `vscode`, Node stdlib | `presentation/`, `pg`, `mysql2` |
+| **Presentation (IDE)** | `src/presentation/` | `@query-autopsy/core`, `vscode`, `container.ts` wires `@query-autopsy/executors` | Direct SQL queries or `pg` imports outside `container.ts` |
+| **Entrypoint (IDE)** | `src/extension.ts` | `src/presentation/vscode/container.ts`, `vscode` types | Business logic or direct adapter instantiation |
 
 - **Dependency Injection**: Manual explicit wiring in `src/presentation/vscode/container.ts` (Composition Root). Do NOT introduce reflection-based DI containers (`inversify`, `tsyringe`).
 - **New Features Rule**:
-  - Adding a Webview UI (Milestone 2) MUST implement `ReportPresenterPort` without modifying `src/domain/` or `src/application/`.
-  - Adding CodeLens / inline diagnostics (Milestone 3) MUST live in `src/presentation/vscode/` and invoke `InspectQueryUseCase` (pure SQL block extraction helpers belong in `src/domain/services/`).
+  - Adding a Webview UI / MCP presenter MUST implement `ReportPresenterPort` without modifying `packages/core/src/domain/` or `packages/core/src/application/`.
+  - Adding CodeLens / inline diagnostics MUST live in `src/presentation/vscode/` and invoke `InspectQueryUseCase` (pure SQL block extraction helpers belong in `packages/core/src/domain/services/`).
 
 ## 2. Non-Negotiable Safety & Security Invariants
 
@@ -37,16 +39,16 @@ Strict inward dependency rule — **NO EXCEPTIONS**:
 
 - `tsconfig.json` enforces `strict: true`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`, `module: "Node16"`.
 - Always include `.js` extensions on relative TypeScript imports (`import { ... } from './foo.js'`).
-- Keep `src/domain/` and `src/application/` 100% unit-testable in Node via `vitest` with zero VS Code or live PostgreSQL dependencies.
+- Keep `packages/core/src/domain/` and `packages/core/src/application/` 100% unit-testable in Node via `vitest` with zero VS Code or live DB driver dependencies.
 - Never duplicate logic; handle driver errors cleanly via `mapPostgresError` -> `QueryExecutionError`.
 
 ## 4. Documentation & Context Map
 
 Read the relevant specification before modifying or extending any subsystem:
 - **PRD & Milestones**: `docs/prd/PRD-001-query-autopsy-mvp.md`
-- **Master Roadmap (`v0.2` → `v1.0`)**: `docs/roadmap/ROADMAP-V0.2-TO-V1.0.md`
+- **Master Roadmaps**: `docs/roadmap/ROADMAP-V0.2-TO-V1.0.md`, `docs/roadmap/ROADMAP-V1.1-TO-V2.0.md`
 - **Hexagonal Blueprint**: `docs/architecture/HEXAGONAL-ARCHITECTURE.md`
-- **ADRs**: `docs/adr/README.md` (`0001` through `0005`)
+- **ADRs**: `docs/adr/README.md` (`0001` through `0006`)
 - **Technical Specs**:
   - `docs/specs/TECH-SPEC-01-sql-classifier-and-pg-executor.md`
   - `docs/specs/TECH-SPEC-02-explain-parser-and-diagnostics.md`

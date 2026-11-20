@@ -1,15 +1,15 @@
-import * as vscode from 'vscode';
 import {
   DomainError,
+  type ExplainMode,
+  extractSqlStatementSpanAtOffset,
+  type InspectionReport,
+  type InspectQueryUseCase,
+  type LoggerPort,
   MissingConnectionError,
   MissingParametersError,
   QueryExecutionError,
-} from '../../../domain/errors/domainErrors.js';
-import type { InspectionReport } from '../../../domain/models/diagnostic.js';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
-import type { InspectQueryUseCase } from '../../../domain/ports/inbound/inspectQueryUseCase.js';
-import type { LoggerPort } from '../../../domain/ports/outbound/loggerPort.js';
-import { extractSqlStatementSpanAtOffset } from '../../../domain/services/sqlClassifier.js';
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 import type { CodeLensInspectArgs } from '../codelens/sqlCodeLensProvider.js';
 
 const SQL_LANGUAGE_IDS = new Set(['sql', 'postgres', 'pgsql', 'mssql']);

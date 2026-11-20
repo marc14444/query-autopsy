@@ -38,8 +38,8 @@ jobs:
       - run: npm run test
       - name: Enforce Hexagonal Architecture boundaries
         run: |
-          if grep -rnE "from ['\"](vscode|pg|mysql2|sql\.js|node:|.*infrastructure|.*presentation|.*application)" src/domain src/application; then
-            echo "::error::Forbidden layer import detected inside src/domain/ or src/application/ (see AGENTS.md)."
+          if grep -rnE "from ['\"](vscode|pg|mysql2|sql\.js|node:|.*infrastructure|.*presentation|.*application|.*executors)" packages/core/src/domain packages/core/src/application; then
+            echo "::error::Forbidden layer import detected inside @query-autopsy/core domain/ or application/ (see AGENTS.md)."
             exit 1
           fi
       - run: npm run package

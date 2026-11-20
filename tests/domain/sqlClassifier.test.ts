@@ -1,14 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import {
-  EmptyQueryError,
-  MultipleStatementsError,
-  UnsafeQueryError,
-} from '../../src/domain/errors/domainErrors.js';
 import {
   classifySqlStatement,
+  EmptyQueryError,
   extractSqlStatementAtOffset,
+  MultipleStatementsError,
+  UnsafeQueryError,
   validateSafeCreateIndexSql,
-} from '../../src/domain/services/sqlClassifier.js';
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('classifySqlStatement', () => {
   it('classifies a SELECT with comments and trailing semicolon as READ', () => {

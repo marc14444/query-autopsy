@@ -1,12 +1,12 @@
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import { sanitizeConnectionDisplayTarget } from '../../domain/models/connectionProfile.js';
 import {
   type DiscoveredConnectionCandidate,
   extractDatabaseUrisFromComposeContent,
   extractDatabaseUrisFromEnvContent,
   parseEnvKeyValueMap,
-} from '../../domain/services/envDiscovery.js';
+  sanitizeConnectionDisplayTarget,
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 
 const ENV_GLOB = '**/{.env,.env.local,.env.development,.env.dev}';
 const COMPOSE_GLOB =

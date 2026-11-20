@@ -1,4 +1,4 @@
-import { QueryExecutionError } from '../../domain/errors/domainErrors.js';
+import { QueryExecutionError } from '@query-autopsy/core';
 
 interface PgErrorLike {
   readonly code?: string;

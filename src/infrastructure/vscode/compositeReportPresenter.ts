@@ -1,5 +1,7 @@
-import type { InspectionReport } from '../../domain/models/diagnostic.js';
-import type { ReportPresenterPort } from '../../domain/ports/outbound/reportPresenterPort.js';
+import type {
+  InspectionReport,
+  ReportPresenterPort,
+} from '@query-autopsy/core';
 
 export class CompositeReportPresenter implements ReportPresenterPort {
   constructor(private readonly presenters: readonly ReportPresenterPort[]) {}

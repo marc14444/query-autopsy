@@ -18,6 +18,6 @@
     "sourceMap": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist", ".vscode-test", "src/webview"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "tests/**/*.mts"],
+  "exclude": ["node_modules", "dist", "packages", ".vscode-test", "src/webview"]
 }

@@ -2,7 +2,10 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
-  "version": "1.1.0",
+  "version": "1.2.0",
+  "workspaces": [
+    "packages/*"
+  ],
   "publisher": "marc14444",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -234,19 +237,22 @@
     }
   },
   "scripts": {
-    "build": "node esbuild.config.mjs",
+    "build:packages": "node scripts/build-packages.mjs",
+    "build": "npm run build:packages && node esbuild.config.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "package": "node esbuild.config.mjs --production",
+    "package": "npm run build:packages && node esbuild.config.mjs --production",
     "vscode:prepublish": "npm run package",
     "package:vsix": "vsce package --no-dependencies",
-    "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
-    "lint": "eslint src tests",
+    "check-types": "npm run build:packages && tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "lint": "eslint src packages scripts tests",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "npm run build:packages && vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "prepublishOnly": "npm run check-types && npm run test && npm run package"
   },
   "dependencies": {
+    "@query-autopsy/core": "1.2.0",
+    "@query-autopsy/executors": "1.2.0",
     "mysql2": "^3.24.6",
     "pg": "^8.13.1",
     "sql.js": "^1.17.0"
