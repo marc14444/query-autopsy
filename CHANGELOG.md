@@ -6,6 +6,7 @@ All notable changes to **QueryAutopsy** will be documented in this file.
 
 ### Fixed & Updated
 - **ESR Composite Index Detection on Bitmap Heap Scans**: `esrCompositeIndexRule` now inspects `Recheck Cond` and child `Bitmap Index Scan` / `BitmapAnd` / `BitmapOr` `Index Cond` nodes (and promotes high-row sorts to `warning`) so `Sort -> Bitmap Heap Scan -> Bitmap Index Scan` queries receive exact `Equality -> Sort -> Range` composite index suggestions.
+- **Sub-Millisecond Comparison Noise Guard & Smart Baseline Selection**: `Before / After Comparison` now labels sub-millisecond timing deltas (`< 2 ms`, `< 1 ms` diff) and minor buffer jitter (`< 5` blocks) neutrally instead of false regression alarms, and keeps the pre-optimization plan/cost run selected across repeated post-fix re-runs.
 - **Marketplace & Documentation Refresh (`README.md`)**: Updated Open VSX / GitHub landing page to document PostgreSQL, MySQL 8+, SQLite WASM, TypeScript/Python/Go ORM CodeLens, Slow Query Explorer, and a visual guide to reading KPI & diagnostic outputs.
 
 ## [1.0.0] - 2026-11-19
