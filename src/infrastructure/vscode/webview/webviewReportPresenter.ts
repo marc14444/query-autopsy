@@ -11,6 +11,7 @@ import {
   computePlanDiff,
   normalizeSqlFingerprint,
   type PlanComparisonSummary,
+  selectDefaultBaselineIndex,
 } from '../../../domain/services/planDiff.js';
 import type {
   BaselineRunOption,
@@ -133,9 +134,8 @@ export class WebviewReportPresenter implements ReportPresenterPort {
     const updated = [...existing, report].slice(-MAX_HISTORY_PER_QUERY);
     this.historyBySql.set(key, updated);
 
-    // Default comparison against the previous run (index length - 2)
-    this.selectedBaselineIndex =
-      updated.length >= 2 ? updated.length - 2 : undefined;
+    // Prefer the most recent run with a meaningful plan/cost shift as baseline
+    this.selectedBaselineIndex = selectDefaultBaselineIndex(updated);
 
     const panel = this.ensurePanel();
     panel.reveal(vscode.ViewColumn.Beside, true);

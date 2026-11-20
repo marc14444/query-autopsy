@@ -254,10 +254,14 @@ function createDeltaTile(
   label: string,
   transition: string,
   deltaPct: number | undefined,
+  isNoise?: boolean,
+  noiseLabel = 'SUB-MS JITTER',
 ): HTMLElement {
   let tone = 'neutral';
   let badgeText = 'UNCHANGED';
-  if (deltaPct !== undefined) {
+  if (isNoise) {
+    badgeText = noiseLabel;
+  } else if (deltaPct !== undefined) {
     if (deltaPct <= -5) {
       tone = 'improved';
       badgeText = `${deltaPct.toFixed(1)}% FASTER / LOWER`;
@@ -310,6 +314,8 @@ function renderComparison(payload: WebviewRenderPayload): void {
         'Execution Time',
         `${cmp.previousExecutionTimeMs.toFixed(2)} ms → ${cmp.currentExecutionTimeMs.toFixed(2)} ms`,
         cmp.executionTimeDeltaPercent,
+        cmp.executionTimeIsNoise,
+        'SUB-MS JITTER',
       ),
     );
   }
@@ -324,6 +330,8 @@ function renderComparison(payload: WebviewRenderPayload): void {
       'Total Buffers',
       `${cmp.previousSharedBlocks.toLocaleString('en-US')} → ${cmp.currentSharedBlocks.toLocaleString('en-US')}`,
       cmp.blocksDeltaPercent,
+      cmp.blocksDeltaIsNoise,
+      'MINOR JITTER',
     ),
   );
 

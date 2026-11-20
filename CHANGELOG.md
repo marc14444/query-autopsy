@@ -2,6 +2,11 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.0.2] - 2026-11-20
+
+### Fixed & Improved
+- **Sub-Millisecond Comparison Noise Guard & Smart Baseline Selection**: `Before / After Comparison` now labels sub-millisecond timing deltas (`< 2 ms`, `< 1 ms` diff) and minor buffer jitter (`< 5` blocks) neutrally instead of false regression alarms, and keeps the pre-optimization plan/cost run selected across repeated post-fix re-runs.
+
 ## [1.0.1] - 2026-11-20
 
 ### Fixed & Updated
