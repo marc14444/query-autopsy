@@ -12,6 +12,7 @@ Strict inward dependency rule — **NO EXCEPTIONS**:
 | **Application** | `packages/core/src/application/` | `packages/core/src/domain/` only | `vscode`, `pg`, `mysql2`, `sql.js`, `executors/`, `presentation/` |
 | **Executors** | `packages/executors/src/` | `@query-autopsy/core`, `pg`, `mysql2`, `sql.js`, Node stdlib | `vscode`, `presentation/` |
 | **CLI / CI** | `packages/cli/src/` | `@query-autopsy/core`, `@query-autopsy/executors`, Node stdlib | `vscode`, `presentation/` |
+| **MCP Firewall** | `packages/mcp/src/` | `@query-autopsy/core`, `@query-autopsy/executors`, Node stdlib | `vscode`, `presentation/`, `ApplyIndexUseCase`, `allowWriteAnalyze: true` |
 | **Infrastructure (IDE)** | `src/infrastructure/vscode/` | `@query-autopsy/core`, `vscode`, Node stdlib | `presentation/`, `pg`, `mysql2` |
 | **Presentation (IDE)** | `src/presentation/` | `@query-autopsy/core`, `vscode`, `container.ts` wires `@query-autopsy/executors` | Direct SQL queries or `pg` imports outside `container.ts` |
 | **Entrypoint (IDE)** | `src/extension.ts` | `src/presentation/vscode/container.ts`, `vscode` types | Business logic or direct adapter instantiation |
