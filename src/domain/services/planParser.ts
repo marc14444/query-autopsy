@@ -163,6 +163,7 @@ function parseNode(
     exclusiveTimePercent,
     filter: readOptionalString(rawNode, 'Filter'),
     indexCond: readOptionalString(rawNode, 'Index Cond'),
+    recheckCond: readOptionalString(rawNode, 'Recheck Cond'),
     hashCond: readOptionalString(rawNode, 'Hash Cond'),
     rowsRemovedByFilter: readOptionalNumber(rawNode, 'Rows Removed by Filter'),
     hashBatches: readOptionalNumber(rawNode, 'Hash Batches'),

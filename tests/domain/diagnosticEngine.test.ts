@@ -215,6 +215,71 @@ describe('analyzeExecutionPlan', () => {
     );
   });
 
+  it('detects ESR composite index opportunity for Sort over Bitmap Heap Scan + child Bitmap Index Scan', () => {
+    const rawPayload = [
+      {
+        Plan: {
+          'Node Type': 'Sort',
+          'Startup Cost': 4685.5,
+          'Total Cost': 4717.91,
+          'Plan Rows': 12965,
+          'Plan Width': 138,
+          'Actual Startup Time': 11.2,
+          'Actual Total Time': 14.2,
+          'Actual Rows': 13500,
+          'Actual Loops': 1,
+          'Sort Key': ['amount_cents DESC', 'payload'],
+          'Sort Method': 'quicksort',
+          'Sort Space Used': 2599,
+          'Sort Space Type': 'Memory',
+          Plans: [
+            {
+              'Node Type': 'Bitmap Heap Scan',
+              'Relation Name': 'orders',
+              Alias: 'orders',
+              'Recheck Cond': "(status = 'pending'::text)",
+              'Startup Cost': 140,
+              'Total Cost': 4500,
+              'Plan Rows': 12965,
+              'Plan Width': 138,
+              'Actual Startup Time': 0.9,
+              'Actual Total Time': 8.28,
+              'Actual Rows': 13500,
+              'Actual Loops': 1,
+              Plans: [
+                {
+                  'Node Type': 'Bitmap Index Scan',
+                  'Index Name': 'idx_orders_status',
+                  'Index Cond': "(status = 'pending'::text)",
+                  'Startup Cost': 0,
+                  'Total Cost': 135,
+                  'Plan Rows': 12965,
+                  'Plan Width': 0,
+                  'Actual Startup Time': 0.78,
+                  'Actual Total Time': 0.78,
+                  'Actual Rows': 13500,
+                  'Actual Loops': 1,
+                },
+              ],
+            },
+          ],
+        },
+        'Execution Time': 14.96,
+      },
+    ];
+
+    const plan = parsePostgreSqlPlan(rawPayload, 'analyze');
+    const findings = analyzeExecutionPlan(plan, { seqScanRowThreshold: 1000 });
+    const esr = findings.find(
+      (f) => f.ruleId === 'ESR_COMPOSITE_INDEX_OPPORTUNITY',
+    );
+    expect(esr).toBeDefined();
+    expect(esr?.severity).toBe('warning');
+    expect(esr?.indexSuggestion?.sql).toBe(
+      'CREATE INDEX CONCURRENTLY idx_orders_status_amount_cents_payload ON orders (status, amount_cents DESC, payload);',
+    );
+  });
+
   it('detects non-SARGable predicates, correlated SubPlans, and lossy bitmap heap blocks', () => {
     const rawPayload = [
       {
