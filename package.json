@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "publisher": "marc14444",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -37,6 +37,12 @@
   ],
   "engines": {
     "vscode": "^1.93.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In untrusted workspaces, .env/docker-compose auto-discovery, database queries, and index creation are disabled to protect against untrusted workspace configurations."
+    }
   },
   "activationEvents": [
     "onLanguage:sql",
@@ -218,6 +224,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show inline CodeLens actions ('Inspect Plan' / 'Estimate Plan') above SQL queries in .sql and TypeScript/JavaScript files."
+        },
+        "queryAutopsy.privacy.redactLiteralsInReports": {
+          "type": "boolean",
+          "default": false,
+          "description": "Redact SQL string literals as '[REDACTED]' in Inspection Reports (Webview, Output Channel, and copied Markdown PR reports) before sharing with AI tools or teammates."
         }
       }
     }

@@ -4,7 +4,10 @@ import {
   UnsafeQueryError,
 } from '../../domain/errors/domainErrors.js';
 import { getEngineAdapter } from '../../domain/engines/engineRegistry.js';
-import { resolveProfileEngine } from '../../domain/models/connectionProfile.js';
+import {
+  assertSafeProfileConnection,
+  resolveProfileEngine,
+} from '../../domain/models/connectionProfile.js';
 import {
   detectDatabaseEngineFromUri,
   formatEngineLabel,
@@ -16,6 +19,10 @@ import type { ConnectionConfigPort } from '../../domain/ports/outbound/connectio
 import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
 import type { QueryExecutorPort } from '../../domain/ports/outbound/queryExecutorPort.js';
 import type { ReportPresenterPort } from '../../domain/ports/outbound/reportPresenterPort.js';
+import {
+  redactExecutionPlanLiterals,
+  redactSqlLiterals,
+} from '../../domain/services/sqlSecurity.js';
 
 export interface InspectQueryDependencies {
   readonly connectionConfig: ConnectionConfigPort;
@@ -86,6 +93,8 @@ export class InspectQueryService implements InspectQueryUseCase {
       throw new MissingConnectionError();
     }
 
+    assertSafeProfileConnection(activeProfile, connectionString);
+
     const startedAt = Date.now();
     this.deps.logger.info(
       `Executing ${formatEngineLabel(engine)} EXPLAIN inspection`,
@@ -111,15 +120,24 @@ export class InspectQueryService implements InspectQueryUseCase {
       },
     );
 
-    const plan = adapter.parsePlan(rawPlan, input.mode);
+    const parsedPlan = adapter.parsePlan(rawPlan, input.mode);
+    const shouldRedact = settings.redactLiteralsInReports === true;
+    const plan = shouldRedact
+      ? redactExecutionPlanLiterals(parsedPlan, engine)
+      : parsedPlan;
+    const reportSql = shouldRedact
+      ? redactSqlLiterals(classified.normalizedSql, engine, {
+          stripComments: false,
+        })
+      : classified.normalizedSql;
     const diagnostics = adapter.analyzePlan(plan, {
       seqScanRowThreshold: settings.seqScanRowThreshold,
-      sql: classified.normalizedSql,
+      sql: reportSql,
     });
 
     const report: InspectionReport = {
       engine,
-      sql: classified.normalizedSql,
+      sql: reportSql,
       statementKind: classified.kind,
       mode: input.mode,
       plan,

@@ -216,4 +216,68 @@ describe('InspectQueryService (Application Use Case)', () => {
       expect.arrayContaining(['MYSQL_FULL_TABLE_SCAN', 'MYSQL_USING_FILESORT']),
     );
   });
+
+  it('blocks dangerous SQL functions, blocks remote no-verify TLS on production, and redacts literals when privacy setting is enabled', async () => {
+    const { service: pgGuardService, queryExecutor: guardExec } = createMocks();
+    await expect(
+      pgGuardService.execute({
+        rawSql: "SELECT pg_read_file('/etc/passwd')",
+        mode: 'estimate',
+      }),
+    ).rejects.toThrow(UnsafeQueryError);
+    expect(guardExec.executeExplain).not.toHaveBeenCalled();
+
+    const { service: prodTlsService, queryExecutor: prodExec } = createMocks({
+      connectionString:
+        'postgresql://user:pw@prod-db.internal:5432/app?sslmode=no-verify',
+      activeProfile: {
+        id: 'prod',
+        name: 'Production',
+        engine: 'postgresql',
+        environment: 'production',
+        readOnlyLocked: true,
+        displayTarget: 'prod-db.internal:5432/app',
+      },
+    });
+    await expect(
+      prodTlsService.execute({
+        rawSql: 'SELECT * FROM orders WHERE user_id = 42',
+        mode: 'estimate',
+      }),
+    ).rejects.toThrow(/sslmode=no-verify/);
+    expect(prodExec.executeExplain).not.toHaveBeenCalled();
+
+    const { service: redactService, queryExecutor: redactExec } = createMocks({
+      settings: { redactLiteralsInReports: true },
+    });
+    vi.mocked(redactExec.executeExplain).mockResolvedValueOnce([
+      {
+        Plan: {
+          'Node Type': 'Seq Scan',
+          'Relation Name': 'orders',
+          'Startup Cost': 0,
+          'Total Cost': 1500,
+          'Plan Rows': 5000,
+          'Plan Width': 32,
+          'Actual Startup Time': 0.01,
+          'Actual Total Time': 12.5,
+          'Actual Rows': 5000,
+          'Actual Loops': 1,
+          Filter: "(email = 'alice@corp.com'::text)",
+        },
+        'Execution Time': 12.7,
+      },
+    ]);
+
+    const redactedReport = await redactService.execute({
+      rawSql: "SELECT id FROM orders WHERE email = 'alice@corp.com';",
+      mode: 'analyze',
+    });
+    expect(redactedReport.sql).not.toContain('alice@corp.com');
+    expect(redactedReport.sql).toContain("'[REDACTED]'");
+    expect(redactedReport.plan.root.filter).not.toContain('alice@corp.com');
+    expect(redactedReport.diagnostics[0]?.detail).not.toContain(
+      'alice@corp.com',
+    );
+  });
 });

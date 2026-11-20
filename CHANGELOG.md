@@ -2,6 +2,15 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.1.0] - 2026-11-20
+
+### Security & Privacy Hardening
+- **VS Code Workspace Trust Enforcement (`untrustedWorkspaces: limited`)**: Blocks `.env` / `docker-compose` / `.sqlite` auto-discovery, DB queries (`ANALYZE`, `Estimate`, `CodeLens`, `Slow Query Explorer`), HypoPG simulation, and index creation in untrusted repositories to prevent SSRF or unintended DB execution from cloned workspaces.
+- **SQL Attack & Exfiltration Guardrails**: Blocks dangerous file/OS/SSRF/session-tampering constructs (`pg_read_file`, `dblink*`, `set_config`, `lo_import`/`lo_export`, `query_to_xml`, `LOAD_FILE`, `INTO OUTFILE`, `load_extension`) inside `sqlClassifier.ts`, and narrows `CREATE INDEX [CONCURRENTLY]` functional expression validation to an immutable built-in allowlist (`LOWER`, `UPPER`, `TRIM`, `BTRIM`, `LTRIM`, `RTRIM`, `LENGTH`, `OCTET_LENGTH`).
+- **Transactional HypoPG Isolation**: `PgQueryExecutor.simulateHypotheticalIndex()` now re-validates SQL and runs HypoPG `EXPLAIN` inside `BEGIN READ ONLY` (or `BEGIN` for write queries) with `SET LOCAL statement_timeout` and guaranteed `ROLLBACK` cleanup.
+- **Credential & TLS Transport Guardrails**: Refuses plaintext passwords in `queryAutopsy.postgres.fallbackConnectionString` (enforcing `SecretStorage`), blocks remote `?sslmode=no-verify` on `production` profiles, requires explicit modal confirmation for remote `no-verify` TLS on dev/staging, defaults non-loopback discovered `.env` profiles to `staging` (Read-Only locked), and warns when connecting as PostgreSQL `is_superuser`.
+- **PII Redaction & Error Sanitization Primitives**: Added `redactSqlLiterals`, `redactExecutionPlanLiterals`, `sanitizeSqlError` (anti cast-error data exfiltration), and opt-in `queryAutopsy.privacy.redactLiteralsInReports`.
+
 ## [1.0.2] - 2026-11-20
 
 ### Fixed & Improved

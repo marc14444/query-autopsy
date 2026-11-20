@@ -154,4 +154,17 @@ describe('SimulateIndexService', () => {
     expect(outcome.message).toContain('only available for PostgreSQL');
     expect(queryExecutor.simulateHypotheticalIndex).not.toHaveBeenCalled();
   });
+
+  it('blocks dangerous SQL functions and remote production no-verify TLS before simulation', async () => {
+    const { service, queryExecutor } = createMocks();
+    await expect(
+      service.execute({
+        querySql: "SELECT dblink('host=127.0.0.1', 'SELECT 1')",
+        indexSql:
+          'CREATE INDEX CONCURRENTLY idx_orders_user_id ON orders (user_id);',
+        baselineCost: 100,
+      }),
+    ).rejects.toThrow(UnsafeQueryError);
+    expect(queryExecutor.simulateHypotheticalIndex).not.toHaveBeenCalled();
+  });
 });
