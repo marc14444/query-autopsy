@@ -1,25 +1,26 @@
 import {
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
-} from '../../domain/models/databaseEngine.js';
-import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type {
-  HypotheticalSimulationOutput,
-  QueryExecutorPort,
-} from '../../domain/ports/outbound/queryExecutorPort.js';
+  type ExplainExecutionRequest,
+  type HypotheticalSimulationOutput,
+  type LoggerPort,
+  type QueryExecutorPort,
+} from '@query-autopsy/core';
 import { MysqlQueryExecutor } from '../mysql/mysqlQueryExecutor.js';
 import { PgQueryExecutor } from '../postgres/pgQueryExecutor.js';
-import { SqliteQueryExecutor } from '../sqlite/sqliteQueryExecutor.js';
+import {
+  type SqliteExecutorOptions,
+  SqliteQueryExecutor,
+} from '../sqlite/sqliteQueryExecutor.js';
 
 export class MultiEngineQueryExecutor implements QueryExecutorPort {
   private readonly executors: Record<DatabaseEngine, QueryExecutorPort>;
 
-  constructor(logger: LoggerPort) {
+  constructor(logger: LoggerPort, sqliteOptions?: SqliteExecutorOptions) {
     this.executors = {
       postgresql: new PgQueryExecutor(logger),
       mysql: new MysqlQueryExecutor(logger),
-      sqlite: new SqliteQueryExecutor(logger),
+      sqlite: new SqliteQueryExecutor(logger, sqliteOptions),
     };
   }
 

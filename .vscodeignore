@@ -3,6 +3,8 @@
 .github/**
 .agents/**
 src/**
+packages/**
+scripts/**
 tests/**
 docker/**
 docs/**

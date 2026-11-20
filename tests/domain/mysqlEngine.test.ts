@@ -1,7 +1,9 @@
+import {
+  explainPlanNode,
+  getEngineAdapter,
+  UnsafeQueryError,
+} from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
-import { getEngineAdapter } from '../../src/domain/engines/engineRegistry.js';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
-import { explainPlanNode } from '../../src/domain/services/nodeExplainer.js';
 
 describe('MySQL Engine Adapter (v0.4.0)', () => {
   const mysql = getEngineAdapter('mysql');

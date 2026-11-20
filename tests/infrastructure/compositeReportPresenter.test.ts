@@ -1,6 +1,8 @@
+import type {
+  InspectionReport,
+  ReportPresenterPort,
+} from '@query-autopsy/core';
 import { describe, expect, it, vi } from 'vitest';
-import type { InspectionReport } from '../../src/domain/models/diagnostic.js';
-import type { ReportPresenterPort } from '../../src/domain/ports/outbound/reportPresenterPort.js';
 import { CompositeReportPresenter } from '../../src/infrastructure/vscode/compositeReportPresenter.js';
 
 describe('CompositeReportPresenter', () => {

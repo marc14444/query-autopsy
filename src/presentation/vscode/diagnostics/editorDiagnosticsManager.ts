@@ -1,10 +1,10 @@
-import * as vscode from 'vscode';
 import type {
   DiagnosticFinding,
   DiagnosticSeverity,
+  ExplainMode,
   InspectionReport,
-} from '../../../domain/models/diagnostic.js';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 
 export const COPY_SUGGESTED_INDEX_COMMAND = 'queryAutopsy.copySuggestedIndex';
 export const APPLY_SUGGESTED_INDEX_COMMAND = 'queryAutopsy.applySuggestedIndex';

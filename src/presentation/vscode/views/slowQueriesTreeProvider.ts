@@ -1,12 +1,12 @@
+import {
+  type ExplainMode,
+  type FetchSlowQueriesUseCase,
+  type LoggerPort,
+  MissingConnectionError,
+  type SlowQueryEntry,
+  type SlowQuerySortBy,
+} from '@query-autopsy/core';
 import * as vscode from 'vscode';
-import { MissingConnectionError } from '../../../domain/errors/domainErrors.js';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
-import type {
-  SlowQueryEntry,
-  SlowQuerySortBy,
-} from '../../../domain/models/slowQuery.js';
-import type { FetchSlowQueriesUseCase } from '../../../domain/ports/inbound/fetchSlowQueriesUseCase.js';
-import type { LoggerPort } from '../../../domain/ports/outbound/loggerPort.js';
 
 export const REFRESH_SLOW_QUERIES_COMMAND = 'queryAutopsy.refreshSlowQueries';
 export const TOGGLE_SLOW_QUERY_SORT_COMMAND = 'queryAutopsy.toggleSlowQuerySort';

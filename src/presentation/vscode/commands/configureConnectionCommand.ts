@@ -1,21 +1,19 @@
-import * as vscode from 'vscode';
 import {
-  extractConnectionHost,
-  isLoopbackHost,
-  isRemoteUnsafeSslUri,
-  type ProfileEnvironment,
-  resolveProfileEngine,
-  sanitizeConnectionDisplayTarget,
-} from '../../../domain/models/connectionProfile.js';
-import {
+  type ConnectionConfigPort,
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
+  type DiscoveredConnectionCandidate,
+  extractConnectionHost,
   formatEngineLabel,
-} from '../../../domain/models/databaseEngine.js';
-import type { ConnectionConfigPort } from '../../../domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../../domain/ports/outbound/loggerPort.js';
-import type { QueryExecutorPort } from '../../../domain/ports/outbound/queryExecutorPort.js';
-import type { DiscoveredConnectionCandidate } from '../../../domain/services/envDiscovery.js';
+  isLoopbackHost,
+  isRemoteUnsafeSslUri,
+  type LoggerPort,
+  type ProfileEnvironment,
+  type QueryExecutorPort,
+  resolveProfileEngine,
+  sanitizeConnectionDisplayTarget,
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 
 export type DiscoverConnectionsFn = () => Promise<
   readonly DiscoveredConnectionCandidate[]

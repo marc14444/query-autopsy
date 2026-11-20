@@ -1,18 +1,14 @@
-import { Client, type PoolConfig, Pool } from 'pg';
-import {
-  InvalidPlanError,
-  UnsafeQueryError,
-} from '../../domain/errors/domainErrors.js';
-import type { ExplainExecutionRequest } from '../../domain/models/queryRequest.js';
-import type { LoggerPort } from '../../domain/ports/outbound/loggerPort.js';
-import type {
-  HypotheticalSimulationOutput,
-  QueryExecutorPort,
-} from '../../domain/ports/outbound/queryExecutorPort.js';
 import {
   classifySqlStatement,
+  type ExplainExecutionRequest,
+  type HypotheticalSimulationOutput,
+  InvalidPlanError,
+  type LoggerPort,
+  type QueryExecutorPort,
+  UnsafeQueryError,
   validateSafeCreateIndexSql,
-} from '../../domain/services/sqlClassifier.js';
+} from '@query-autopsy/core';
+import { Client, type PoolConfig, Pool } from 'pg';
 import { mapPostgresError } from './pgErrors.js';
 
 export function buildPgPoolConfig(connectionString: string): PoolConfig {

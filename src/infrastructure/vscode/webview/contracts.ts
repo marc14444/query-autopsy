@@ -1,7 +1,9 @@
-import type { InspectionReport } from '../../../domain/models/diagnostic.js';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
-import type { SimulateIndexResult } from '../../../domain/ports/inbound/simulateIndexUseCase.js';
-import type { PlanComparisonSummary } from '../../../domain/services/planDiff.js';
+import type {
+  ExplainMode,
+  InspectionReport,
+  PlanComparisonSummary,
+  SimulateIndexResult,
+} from '@query-autopsy/core';
 
 export interface BaselineRunOption {
   readonly index: number;

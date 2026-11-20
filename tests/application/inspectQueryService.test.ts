@@ -1,19 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
-import { InspectQueryService } from '../../src/application/usecases/inspectQueryService.js';
 import {
+  type ConnectionConfigPort,
+  type ConnectionProfile,
+  type InspectionReport,
+  InspectQueryService,
+  type LoggerPort,
   MissingConnectionError,
   MissingParametersError,
+  type QueryExecutorPort,
+  type ReportPresenterPort,
+  type RuntimeSettings,
   UnsafeQueryError,
-} from '../../src/domain/errors/domainErrors.js';
-import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
-import type { InspectionReport } from '../../src/domain/models/diagnostic.js';
-import type {
-  ConnectionConfigPort,
-  RuntimeSettings,
-} from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { QueryExecutorPort } from '../../src/domain/ports/outbound/queryExecutorPort.js';
-import type { ReportPresenterPort } from '../../src/domain/ports/outbound/reportPresenterPort.js';
+} from '@query-autopsy/core';
+import { describe, expect, it, vi } from 'vitest';
 
 function createMocks(options?: {
   connectionString?: string | undefined;

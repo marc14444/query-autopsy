@@ -1,13 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
-import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
-import { classifySqlStatement } from '../../src/domain/services/sqlClassifier.js';
 import {
   assertSafeSqlConstructs,
+  classifySqlStatement,
+  parsePostgreSqlPlan,
   redactExecutionPlanLiterals,
   redactSqlLiterals,
   sanitizeSqlError,
-} from '../../src/domain/services/sqlSecurity.js';
+  UnsafeQueryError,
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('assertSafeSqlConstructs & classifySqlStatement dangerous call guards', () => {
   it('blocks dangerous PostgreSQL filesystem, network SSRF, dynamic SQL, and config tampering calls', () => {

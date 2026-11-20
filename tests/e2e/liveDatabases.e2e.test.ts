@@ -1,19 +1,21 @@
+import {
+  ApplyIndexService,
+  type ConnectionConfigPort,
+  type ConnectionProfile,
+  FetchSlowQueriesService,
+  InspectQueryService,
+  type LoggerPort,
+  type ReportPresenterPort,
+  type RuntimeSettings,
+  UnsafeQueryError,
+} from '@query-autopsy/core';
+import {
+  MultiEngineQueryExecutor,
+  MultiEngineSlowQueryReader,
+} from '@query-autopsy/executors';
 import mysql from 'mysql2/promise';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ApplyIndexService } from '../../src/application/usecases/applyIndexService.js';
-import { FetchSlowQueriesService } from '../../src/application/usecases/fetchSlowQueriesService.js';
-import { InspectQueryService } from '../../src/application/usecases/inspectQueryService.js';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
-import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
-import type {
-  ConnectionConfigPort,
-  RuntimeSettings,
-} from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { ReportPresenterPort } from '../../src/domain/ports/outbound/reportPresenterPort.js';
-import { MultiEngineQueryExecutor } from '../../src/infrastructure/database/multiEngineQueryExecutor.js';
-import { MultiEngineSlowQueryReader } from '../../src/infrastructure/database/slowQueryReader.js';
 
 const PG_TEST_URI = process.env['QUERY_AUTOPSY_PG_TEST_URI'];
 const MYSQL_TEST_URI = process.env['QUERY_AUTOPSY_MYSQL_TEST_URI'];

@@ -1,0 +1,43 @@
+{
+  "name": "@query-autopsy/executors",
+  "version": "1.2.0",
+  "description": "Database executor adapters (PostgreSQL, MySQL 8+, SQLite WASM) and slow query readers for QueryAutopsy.",
+  "license": "MIT",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marc14444/query-autopsy.git",
+    "directory": "packages/executors"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json"
+  },
+  "dependencies": {
+    "@query-autopsy/core": "1.2.0",
+    "mysql2": "^3.24.6",
+    "pg": "^8.13.1",
+    "sql.js": "^1.17.0"
+  }
+}

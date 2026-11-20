@@ -2,10 +2,10 @@ import type {
   DiagnosticFinding,
   DiagnosticSeverity,
   InspectionReport,
-} from '../domain/models/diagnostic.js';
-import type { PlanNode } from '../domain/models/executionPlan.js';
-import type { SimulateIndexResult } from '../domain/ports/inbound/simulateIndexUseCase.js';
-import type { PlanComparisonSummary } from '../domain/services/planDiff.js';
+  PlanComparisonSummary,
+  PlanNode,
+  SimulateIndexResult,
+} from '@query-autopsy/core';
 import type {
   ExtensionToWebviewMessage,
   WebviewRenderPayload,

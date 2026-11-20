@@ -1,7 +1,6 @@
+import { type LoggerPort, UnsafeQueryError } from '@query-autopsy/core';
+import { PgQueryExecutor } from '@query-autopsy/executors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
-import { PgQueryExecutor } from '../../src/infrastructure/postgres/pgQueryExecutor.js';
 
 const mockState = vi.hoisted(() => {
   const poolQueryMock = vi.fn();

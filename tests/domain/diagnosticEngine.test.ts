@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
 import {
   analyzeExecutionPlan,
   extractFilterColumns,
-} from '../../src/domain/services/diagnosticEngine.js';
-import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
+  parsePostgreSqlPlan,
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('extractFilterColumns', () => {
   it('extracts columns cleanly across Postgres type casts and operators', () => {

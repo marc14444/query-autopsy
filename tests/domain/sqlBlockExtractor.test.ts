@@ -1,5 +1,5 @@
+import { extractSqlBlocks } from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
-import { extractSqlBlocks } from '../../src/domain/services/sqlBlockExtractor.js';
 
 describe('extractSqlBlocks', () => {
   it('extracts inspectable statements from SQL scripts and skips DDL/ANALYZE', () => {

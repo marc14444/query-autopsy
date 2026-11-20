@@ -1,16 +1,14 @@
-import * as vscode from 'vscode';
-import { UnsafeQueryError } from '../../domain/errors/domainErrors.js';
 import {
+  type ConnectionConfigPort,
   type ConnectionProfile,
   connectionUriHasPlaintextPassword,
-  type SaveConnectionProfileInput,
+  detectDatabaseEngineFromUri,
+  type RuntimeSettings,
   sanitizeConnectionDisplayTarget,
-} from '../../domain/models/connectionProfile.js';
-import { detectDatabaseEngineFromUri } from '../../domain/models/databaseEngine.js';
-import type {
-  ConnectionConfigPort,
-  RuntimeSettings,
-} from '../../domain/ports/outbound/connectionConfigPort.js';
+  type SaveConnectionProfileInput,
+  UnsafeQueryError,
+} from '@query-autopsy/core';
+import * as vscode from 'vscode';
 
 const LEGACY_SECRET_CONNECTION_KEY = 'queryAutopsy.postgres.connectionString';
 const PROFILE_SECRET_PREFIX = 'queryAutopsy.postgres.profile.';

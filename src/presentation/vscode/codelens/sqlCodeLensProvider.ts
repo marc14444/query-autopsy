@@ -1,6 +1,8 @@
+import {
+  type ExplainMode,
+  extractSqlBlocks,
+} from '@query-autopsy/core';
 import * as vscode from 'vscode';
-import type { ExplainMode } from '../../../domain/models/queryRequest.js';
-import { extractSqlBlocks } from '../../../domain/services/sqlBlockExtractor.js';
 
 export const INSPECT_CODELENS_COMMAND = 'queryAutopsy.inspectCodeLens';
 

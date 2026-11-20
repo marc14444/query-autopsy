@@ -1,17 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  type ConnectionConfigPort,
+  type ConnectionProfile,
+  InspectQueryService,
+  type LoggerPort,
+  type ReportPresenterPort,
+  type RuntimeSettings,
+} from '@query-autopsy/core';
+import { SqliteQueryExecutor } from '@query-autopsy/executors';
 import initSqlJs from 'sql.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { InspectQueryService } from '../../src/application/usecases/inspectQueryService.js';
-import type { ConnectionProfile } from '../../src/domain/models/connectionProfile.js';
-import type {
-  ConnectionConfigPort,
-  RuntimeSettings,
-} from '../../src/domain/ports/outbound/connectionConfigPort.js';
-import type { LoggerPort } from '../../src/domain/ports/outbound/loggerPort.js';
-import type { ReportPresenterPort } from '../../src/domain/ports/outbound/reportPresenterPort.js';
-import { SqliteQueryExecutor } from '../../src/infrastructure/sqlite/sqliteQueryExecutor.js';
 
 const tempDirs: string[] = [];
 

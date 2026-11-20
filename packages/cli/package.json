@@ -1,0 +1,50 @@
+{
+  "name": "@query-autopsy/cli",
+  "version": "1.2.0",
+  "description": "Language-agnostic SQL EXPLAIN profiler, CI performance gate (JSON / Markdown / SARIF), and offline SQL safety checker.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "query-autopsy": "./bin/query-autopsy.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marc14444/query-autopsy.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "explain",
+    "sql",
+    "ci",
+    "sarif",
+    "performance"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@query-autopsy/core": "1.2.0",
+    "@query-autopsy/executors": "1.2.0"
+  }
+}

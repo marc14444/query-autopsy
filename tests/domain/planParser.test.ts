@@ -1,6 +1,5 @@
+import { InvalidPlanError, parsePostgreSqlPlan } from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
-import { InvalidPlanError } from '../../src/domain/errors/domainErrors.js';
-import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
 
 describe('parsePostgreSqlPlan', () => {
   it('parses a nested EXPLAIN ANALYZE payload and computes exclusive node times without double counting buffers', () => {

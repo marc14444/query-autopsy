@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'vitest';
-import { UnsafeQueryError } from '../../src/domain/errors/domainErrors.js';
 import {
   assertSafeProfileConnection,
   type ConnectionProfile,
@@ -7,8 +5,10 @@ import {
   extractConnectionHost,
   isLoopbackHost,
   isRemoteUnsafeSslUri,
+  UnsafeQueryError,
   usesSslNoVerify,
-} from '../../src/domain/models/connectionProfile.js';
+} from '@query-autopsy/core';
+import { describe, expect, it } from 'vitest';
 
 describe('connectionProfile security helpers', () => {
   it('identifies loopback vs remote hostnames accurately', () => {

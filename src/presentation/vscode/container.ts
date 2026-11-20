@@ -1,14 +1,18 @@
+import {
+  ApplyIndexService,
+  type ExplainMode,
+  FetchSlowQueriesService,
+  type InspectionReport,
+  InspectQueryService,
+  MissingParametersError,
+  SimulateIndexService,
+  type SlowQueryEntry,
+} from '@query-autopsy/core';
+import {
+  MultiEngineQueryExecutor,
+  MultiEngineSlowQueryReader,
+} from '@query-autopsy/executors';
 import * as vscode from 'vscode';
-import { ApplyIndexService } from '../../application/usecases/applyIndexService.js';
-import { FetchSlowQueriesService } from '../../application/usecases/fetchSlowQueriesService.js';
-import { InspectQueryService } from '../../application/usecases/inspectQueryService.js';
-import { SimulateIndexService } from '../../application/usecases/simulateIndexService.js';
-import { MissingParametersError } from '../../domain/errors/domainErrors.js';
-import type { InspectionReport } from '../../domain/models/diagnostic.js';
-import type { ExplainMode } from '../../domain/models/queryRequest.js';
-import type { SlowQueryEntry } from '../../domain/models/slowQuery.js';
-import { MultiEngineQueryExecutor } from '../../infrastructure/database/multiEngineQueryExecutor.js';
-import { MultiEngineSlowQueryReader } from '../../infrastructure/database/slowQueryReader.js';
 import { CompositeReportPresenter } from '../../infrastructure/vscode/compositeReportPresenter.js';
 import { OutputChannelLogger } from '../../infrastructure/vscode/logger.js';
 import { OutputChannelReportPresenter } from '../../infrastructure/vscode/outputChannelPresenter.js';

@@ -1,6 +1,5 @@
+import { explainPlanNode, getEngineAdapter } from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
-import { getEngineAdapter } from '../../src/domain/engines/engineRegistry.js';
-import { explainPlanNode } from '../../src/domain/services/nodeExplainer.js';
 
 describe('SQLite Engine Adapter (v0.4.0)', () => {
   const sqlite = getEngineAdapter('sqlite');
