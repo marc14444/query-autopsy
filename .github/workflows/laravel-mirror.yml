@@ -1,0 +1,69 @@
+name: Sync Laravel Composer Mirror (marc14444/laravel-query-autopsy)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to push to mirror repository (e.g. v1.5.0)'
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional release tag to push (defaults to v<package.json version>)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sync-laravel-mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PHP sources, Composer manifest & unit tests
+        run: |
+          if [ ! -d packages/laravel ]; then
+            echo "::notice::packages/laravel does not exist on this ref yet; skipping Laravel mirror sync."
+            exit 0
+          fi
+          find packages/laravel -name '*.php' -print0 | xargs -0 -n1 php -l
+          composer validate --strict --working-dir=packages/laravel
+          php packages/laravel/tests/run.php
+
+      - name: Push packages/laravel subtree to marc14444/laravel-query-autopsy
+        env:
+          LARAVEL_MIRROR_TOKEN: ${{ secrets.LARAVEL_MIRROR_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ ! -d packages/laravel ]; then
+            exit 0
+          fi
+
+          if [ -z "${LARAVEL_MIRROR_TOKEN:-}" ]; then
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "::error::LARAVEL_MIRROR_TOKEN secret is not configured in repository Actions secrets."
+              exit 1
+            fi
+            echo "::notice::LARAVEL_MIRROR_TOKEN secret is not configured; skipping Packagist mirror sync."
+            exit 0
+          fi
+
+          VERSION=$(node -p "require('./package.json').version")
+          RELEASE_TAG="${INPUT_TAG:-v${VERSION}}"
+          MIRROR_URL="https://github.com/marc14444/laravel-query-autopsy.git"
+
+          AUTH_B64=$(printf 'x-access-token:%s' "$LARAVEL_MIRROR_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::${AUTH_B64}"
+          EXTRA_HEADER="http.${MIRROR_URL}.extraheader=AUTHORIZATION: basic ${AUTH_B64}"
+
+          git subtree split --prefix=packages/laravel -b split-laravel
+          git -c "$EXTRA_HEADER" push --force "$MIRROR_URL" split-laravel:main
+
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            git -c "$EXTRA_HEADER" push --force "$MIRROR_URL" "split-laravel:refs/tags/${RELEASE_TAG}"
+          fi

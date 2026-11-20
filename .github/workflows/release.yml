@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: release-main
@@ -16,6 +17,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.meta.outputs.should_release }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,3 +105,17 @@ jobs:
           else
             echo "OVSX_PAT secret is not configured; skipping Open VSX publish."
           fi
+
+  publish-npm:
+    needs: release
+    if: needs.release.outputs.should_release == 'true'
+    uses: ./.github/workflows/npm-publish.yml
+    secrets: inherit
+
+  sync-laravel-mirror:
+    needs: release
+    if: needs.release.outputs.should_release == 'true'
+    uses: ./.github/workflows/laravel-mirror.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
