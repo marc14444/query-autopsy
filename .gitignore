@@ -6,3 +6,4 @@ coverage/
 *.vsix
 .env
 .DS_Store
+.query-autopsy/

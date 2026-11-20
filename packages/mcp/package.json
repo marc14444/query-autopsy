@@ -1,6 +1,6 @@
 {
   "name": "@query-autopsy/mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Zero-trust local stdio MCP server giving AI coding agents safe, read-only SQL EXPLAIN, HypoPG index simulation, and slow-query diagnostics without raw SQL access.",
   "license": "MIT",
   "type": "module",
@@ -44,7 +44,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@query-autopsy/core": "1.4.0",
-    "@query-autopsy/executors": "1.4.0"
+    "@query-autopsy/core": "1.5.0",
+    "@query-autopsy/executors": "1.5.0"
   }
 }

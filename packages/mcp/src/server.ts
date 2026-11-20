@@ -25,7 +25,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 
 const SERVER_INFO = {
   name: '@query-autopsy/mcp',
-  version: '1.4.0',
+  version: '1.5.0',
 };
 
 function isValidRpcId(id: unknown): id is string | number | null {

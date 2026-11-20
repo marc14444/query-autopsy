@@ -39,6 +39,11 @@ A SQL query over 20 dev rows finishes in 1 ms even without indexes — then stal
   - **TypeScript / JavaScript**: Prisma (`$queryRaw`, `$queryRawUnsafe`), Drizzle (`sql\`...\``), TypeORM (`.query()`), Knex (`.raw()`), `pg` / `mysql2`
   - **Python**: `psycopg`, `SQLAlchemy` (`text()`), `sqlite3`, Django (`.raw()`), `# sql` / triple-quoted SQL (normalizes `%s`, `%(name)s`, `:param` cleanly)
   - **Go**: `database/sql`, `pgx`, `sqlx`, `GORM` (`QueryContext`, `QueryRow`, `Exec`, `Raw`)
+  - **PHP / Laravel**: `DB::select()`, `DB::statement()`, `DB::raw()`, `$pdo->prepare()`, heredocs/nowdocs (`<<<SQL` / `<<<'SQL'`)
+- **Universal Ecosystem Packages (One Core, Any Stack)**:
+  - **`@query-autopsy/core`** & **`@query-autopsy/cli`**: Zero-dependency SQL classifier, plan diagnostics, CI/SARIF gate (`query-autopsy ci` / `check`), and `.query-autopsy/traces.jsonl` N+1 burst detector (`query-autopsy trace`).
+  - **`@query-autopsy/mcp`**: Zero-trust `stdio` MCP firewall giving AI agents safe read-only `EXPLAIN`, HypoPG simulation, and workspace-confined trace analysis without raw SQL execution.
+  - **`marc14444/laravel-query-autopsy`** ([`packages/laravel/`](./packages/laravel/)): Dev-only Composer package capturing sanitized Eloquent queries in `local`/`testing` into `.query-autopsy/traces.jsonl` + `php artisan query:autopsy`.
 - **Slow Query Explorer Sidebar**: Inspect Top 10 slowest server queries from PostgreSQL `pg_stat_statements` or MySQL `performance_schema` in 1 click (on demand — zero silent background DB calls).
 - **Safe Multi-Profile & Onboarding**: Guided Setup (`127.0.0.1` default, auto-encoding for special characters, SSL modes), auto-detection for `.env` / `docker-compose.yml` / `.sqlite` files, encrypted `SecretStorage` credentials, and Read-Only production locks (`[RO]`).
 
@@ -118,8 +123,9 @@ npm run package:vsix  # Build universal production VSIX installer
 - **[AGENTS.md](./AGENTS.md)** — Architectural boundaries, safety invariants, and contributor rules
 - **[PRD-001](./docs/prd/PRD-001-query-autopsy-mvp.md)** — Product Requirements
 - **[Master Roadmap (v0.2 → v1.0)](./docs/roadmap/ROADMAP-V0.2-TO-V1.0.md)** — Delivery roadmap across all 4 sprints
+- **[Universal Ecosystem & Security Roadmap (v1.1 → v2.0)](./docs/roadmap/ROADMAP-V1.1-TO-V2.0.md)** — Core extraction, MCP Firewall, JSONL Traces & Laravel Bridge
 - **[Hexagonal Architecture](./docs/architecture/HEXAGONAL-ARCHITECTURE.md)** — Ports & Adapters blueprint
-- **[ADRs](./docs/adr/README.md)** — Architecture Decision Records (`0001`–`0005`)
+- **[ADRs](./docs/adr/README.md)** — Architecture Decision Records (`0001`–`0006`)
 - **[Technical Specifications](./docs/specs/TECH-SPEC-01-sql-classifier-and-pg-executor.md)** — Classifier, Executor, Parser, Diagnostics, and Webview/CodeLens specs
 - **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Branch naming conventions & PR checklist
 
