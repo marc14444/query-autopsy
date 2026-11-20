@@ -18,10 +18,18 @@ import { OutputChannelLogger } from '../../infrastructure/vscode/logger.js';
 import { OutputChannelReportPresenter } from '../../infrastructure/vscode/outputChannelPresenter.js';
 import { VsCodeConnectionStore } from '../../infrastructure/vscode/vscodeConnectionStore.js';
 import {
+  discoverWorkspaceDatabaseConnections,
+} from '../../infrastructure/vscode/workspaceEnvDiscovery.js';
+import {
+  discoverWorkspaceTraceFiles,
+  readSafeWorkspaceTraceFile,
+  type ResolvedTraceSourceTarget,
+  resolveSafeWorkspaceSourceTarget,
+} from '../../infrastructure/vscode/workspaceTraceDiscovery.js';
+import {
   type RerunQueryHandler,
   WebviewReportPresenter,
 } from '../../infrastructure/vscode/webview/webviewReportPresenter.js';
-import { discoverWorkspaceDatabaseConnections } from '../../infrastructure/vscode/workspaceEnvDiscovery.js';
 import {
   type CodeLensInspectArgs,
   INSPECT_CODELENS_COMMAND,
@@ -54,6 +62,15 @@ import {
   type SlowQueryTreeNode,
   TOGGLE_SLOW_QUERY_SORT_COMMAND,
 } from './views/slowQueriesTreeProvider.js';
+import {
+  ANALYZE_TRACE_QUERY_COMMAND,
+  ESTIMATE_TRACE_QUERY_COMMAND,
+  OPEN_TRACE_FILE_COMMAND,
+  OPEN_TRACE_SOURCE_COMMAND,
+  REFRESH_TRACES_COMMAND,
+  TraceExplorerTreeProvider,
+  type TraceTreeNode,
+} from './views/traceExplorerTreeProvider.js';
 
 export interface ExtensionContainer {
   dispose(): Promise<void>;
@@ -230,13 +247,14 @@ export function createExtensionContainer(
     logger,
   });
 
-  const inspectSlowQueryFromTree = async (
-    entry: SlowQueryEntry,
+  const inspectSqlInTemporaryDocument = async (
+    sql: string,
     mode: ExplainMode,
+    preboundParameters?: readonly unknown[],
   ): Promise<void> => {
     const doc = await vscode.workspace.openTextDocument({
       language: 'sql',
-      content: `${entry.query}\n`,
+      content: `${sql}\n`,
     });
     await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);
     const fullRange = new vscode.Range(
@@ -245,14 +263,20 @@ export function createExtensionContainer(
     );
     await executeInspectionWithUi(
       inspectQueryUseCase,
-      entry.query,
+      sql,
       mode,
       configureHandler,
       logger,
       { uri: doc.uri, range: fullRange },
       handleReportProduced,
+      preboundParameters,
     );
   };
+
+  const inspectSlowQueryFromTree = async (
+    entry: SlowQueryEntry,
+    mode: ExplainMode,
+  ): Promise<void> => inspectSqlInTemporaryDocument(entry.query, mode);
 
   const slowQueriesTreeProvider = new SlowQueriesTreeProvider(
     fetchSlowQueriesUseCase,
@@ -261,6 +285,60 @@ export function createExtensionContainer(
     logger,
     (actionLabel) => ensureWorkspaceTrusted(actionLabel, logger),
   );
+
+  const openTraceSourceTarget = async (
+    target: ResolvedTraceSourceTarget,
+  ): Promise<void> => {
+    const doc = await vscode.workspace.openTextDocument(target.uri);
+    const editor = await vscode.window.showTextDocument(
+      doc,
+      vscode.ViewColumn.One,
+      false,
+    );
+    const lineIdx = Math.max(
+      0,
+      Math.min(doc.lineCount - 1, target.line - 1),
+    );
+    const lineRange = doc.lineAt(lineIdx).range;
+    editor.selection = new vscode.Selection(lineRange.start, lineRange.start);
+    editor.revealRange(lineRange, vscode.TextEditorRevealType.InCenter);
+  };
+
+  const traceExplorerTreeProvider = new TraceExplorerTreeProvider({
+    discoverFiles: discoverWorkspaceTraceFiles,
+    readTraceFile: (file) =>
+      readSafeWorkspaceTraceFile(
+        file.uri,
+        vscode.workspace.getWorkspaceFolder(file.uri)?.uri,
+      ),
+    resolveSourceTarget: resolveSafeWorkspaceSourceTarget,
+    onInspectCandidate: async (sql, bindings, mode) => {
+      if (!(await ensureWorkspaceTrusted('Inspect Trace Query Plan', logger))) {
+        return;
+      }
+      await inspectSqlInTemporaryDocument(sql, mode, bindings);
+    },
+    onOpenSource: openTraceSourceTarget,
+    getConfig: () => {
+      const traceCfg = vscode.workspace.getConfiguration('queryAutopsy.traces');
+      const privacyCfg = vscode.workspace.getConfiguration(
+        'queryAutopsy.privacy',
+      );
+      return {
+        nPlusOneThreshold: traceCfg.get<number>('nPlusOneThreshold', 3),
+        slowQueryMsThreshold: traceCfg.get<number>('slowQueryMsThreshold', 200),
+        redactLiterals: privacyCfg.get<boolean>('redactLiteralsInReports', false),
+      };
+    },
+    logger,
+  });
+
+  const traceWatcher = vscode.workspace.createFileSystemWatcher(
+    '**/.query-autopsy/*.{jsonl,ndjson}',
+  );
+  traceWatcher.onDidCreate(() => traceExplorerTreeProvider.scheduleRefresh());
+  traceWatcher.onDidChange(() => traceExplorerTreeProvider.scheduleRefresh());
+  traceWatcher.onDidDelete(() => traceExplorerTreeProvider.scheduleRefresh());
 
   rerunHandlerRef.current = async (sql, mode) => {
     if (!(await ensureWorkspaceTrusted('Re-run EXPLAIN Inspection', logger))) {
@@ -285,9 +363,15 @@ export function createExtensionContainer(
     diagnosticsManager,
     codeLensProvider,
     slowQueriesTreeProvider,
+    traceExplorerTreeProvider,
+    traceWatcher,
     vscode.window.registerTreeDataProvider(
       'queryAutopsy.slowQueries',
       slowQueriesTreeProvider,
+    ),
+    vscode.window.registerTreeDataProvider(
+      'queryAutopsy.traces',
+      traceExplorerTreeProvider,
     ),
     connectionConfig.onDidChangeProfile(() => {
       void syncProfileUiState();
@@ -296,6 +380,12 @@ export function createExtensionContainer(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('queryAutopsy.postgres')) {
         void syncProfileUiState();
+      }
+      if (
+        event.affectsConfiguration('queryAutopsy.traces') ||
+        event.affectsConfiguration('queryAutopsy.privacy')
+      ) {
+        traceExplorerTreeProvider.scheduleRefresh(150);
       }
     }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
@@ -465,7 +555,53 @@ export function createExtensionContainer(
         }
       },
     ),
+    vscode.commands.registerCommand(REFRESH_TRACES_COMMAND, () =>
+      traceExplorerTreeProvider.refresh(),
+    ),
+    vscode.commands.registerCommand(OPEN_TRACE_FILE_COMMAND, async () => {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        title: 'Select QueryAutopsy Trace File (.jsonl / .ndjson)',
+        filters: {
+          'JSONL Traces': ['jsonl', 'ndjson'],
+        },
+      });
+      const uri = picked?.[0];
+      if (!uri) {
+        return;
+      }
+      const folder =
+        vscode.workspace.getWorkspaceFolder(uri) ??
+        vscode.workspace.workspaceFolders?.[0];
+      traceExplorerTreeProvider.setCustomTraceFile({
+        uri,
+        relativePath: vscode.workspace.asRelativePath(uri, false),
+        folderUri: folder?.uri ?? uri,
+        folderName: folder?.name ?? 'Trace',
+      });
+      await traceExplorerTreeProvider.refresh();
+    }),
+    vscode.commands.registerCommand(
+      OPEN_TRACE_SOURCE_COMMAND,
+      async (node?: TraceTreeNode) => {
+        await traceExplorerTreeProvider.handleOpenSource(node);
+      },
+    ),
+    vscode.commands.registerCommand(
+      ESTIMATE_TRACE_QUERY_COMMAND,
+      async (node?: TraceTreeNode) => {
+        await traceExplorerTreeProvider.handleInspect(node, 'estimate');
+      },
+    ),
+    vscode.commands.registerCommand(
+      ANALYZE_TRACE_QUERY_COMMAND,
+      async (node?: TraceTreeNode) => {
+        await traceExplorerTreeProvider.handleInspect(node, 'analyze');
+      },
+    ),
   );
+
+  void traceExplorerTreeProvider.refresh();
 
   logger.info('QueryAutopsy extension activated');
 

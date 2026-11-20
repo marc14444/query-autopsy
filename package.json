@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "workspaces": [
     "packages/*"
   ],
@@ -61,7 +61,9 @@
     "onLanguage:python",
     "onLanguage:go",
     "onLanguage:php",
-    "onView:queryAutopsy.slowQueries"
+    "onView:queryAutopsy.slowQueries",
+    "onView:queryAutopsy.traces",
+    "workspaceContains:.query-autopsy/*.jsonl"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -128,6 +130,36 @@
         "title": "Estimate Slow Query Plan",
         "category": "QueryAutopsy",
         "icon": "$(eye)"
+      },
+      {
+        "command": "queryAutopsy.refreshTraces",
+        "title": "Refresh Runtime Traces",
+        "category": "QueryAutopsy",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "queryAutopsy.openTraceFile",
+        "title": "Open Trace JSONL File...",
+        "category": "QueryAutopsy",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "queryAutopsy.openTraceSource",
+        "title": "Jump to Query Source Line",
+        "category": "QueryAutopsy",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "queryAutopsy.estimateTraceQuery",
+        "title": "Estimate EXPLAIN Plan",
+        "category": "QueryAutopsy",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "queryAutopsy.analyzeTraceQuery",
+        "title": "Run EXPLAIN (ANALYZE, BUFFERS)",
+        "category": "QueryAutopsy",
+        "icon": "$(play)"
       }
     ],
     "views": {
@@ -135,6 +167,10 @@
         {
           "id": "queryAutopsy.slowQueries",
           "name": "QueryAutopsy: Slow Queries"
+        },
+        {
+          "id": "queryAutopsy.traces",
+          "name": "QueryAutopsy: Runtime Traces (N+1)"
         }
       ]
     },
@@ -159,6 +195,18 @@
         {
           "command": "queryAutopsy.estimateSlowQuery",
           "when": "false"
+        },
+        {
+          "command": "queryAutopsy.openTraceSource",
+          "when": "false"
+        },
+        {
+          "command": "queryAutopsy.estimateTraceQuery",
+          "when": "false"
+        },
+        {
+          "command": "queryAutopsy.analyzeTraceQuery",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -171,6 +219,16 @@
           "command": "queryAutopsy.toggleSlowQuerySort",
           "when": "view == queryAutopsy.slowQueries",
           "group": "navigation@2"
+        },
+        {
+          "command": "queryAutopsy.refreshTraces",
+          "when": "view == queryAutopsy.traces",
+          "group": "navigation@1"
+        },
+        {
+          "command": "queryAutopsy.openTraceFile",
+          "when": "view == queryAutopsy.traces",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -178,6 +236,21 @@
           "command": "queryAutopsy.estimateSlowQuery",
           "when": "view == queryAutopsy.slowQueries && viewItem == slowQueryEntry",
           "group": "inline@1"
+        },
+        {
+          "command": "queryAutopsy.openTraceSource",
+          "when": "view == queryAutopsy.traces && (viewItem == traceFindingWithLocation || viewItem == traceOffenderWithLocation)",
+          "group": "inline@1"
+        },
+        {
+          "command": "queryAutopsy.estimateTraceQuery",
+          "when": "view == queryAutopsy.traces && (viewItem == traceFinding || viewItem == traceFindingWithLocation || viewItem == traceOffender || viewItem == traceOffenderWithLocation)",
+          "group": "inline@2"
+        },
+        {
+          "command": "queryAutopsy.analyzeTraceQuery",
+          "when": "view == queryAutopsy.traces && (viewItem == traceFinding || viewItem == traceFindingWithLocation || viewItem == traceOffender || viewItem == traceOffenderWithLocation)",
+          "group": "queryAutopsy@1"
         }
       ],
       "editor/context": [
@@ -233,6 +306,20 @@
           "type": "boolean",
           "default": false,
           "description": "Redact SQL string literals as '[REDACTED]' in Inspection Reports (Webview, Output Channel, and copied Markdown PR reports) before sharing with AI tools or teammates."
+        },
+        "queryAutopsy.traces.nPlusOneThreshold": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 2,
+          "maximum": 1000,
+          "description": "Minimum identical normalized SQL queries within a single requestId to surface N_PLUS_ONE_BURST warnings in Trace Explorer."
+        },
+        "queryAutopsy.traces.slowQueryMsThreshold": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 600000,
+          "description": "Execution latency threshold (in ms) before surfacing SLOW_TRACE_QUERY diagnostics in Trace Explorer."
         }
       }
     }

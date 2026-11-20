@@ -44,7 +44,7 @@ A SQL query over 20 dev rows finishes in 1 ms even without indexes — then stal
   - **`@query-autopsy/core`** & **`@query-autopsy/cli`**: Zero-dependency SQL classifier, plan diagnostics, CI/SARIF gate (`query-autopsy ci` / `check`), and `.query-autopsy/traces.jsonl` N+1 burst detector (`query-autopsy trace`).
   - **`@query-autopsy/mcp`**: Zero-trust `stdio` MCP firewall giving AI agents safe read-only `EXPLAIN`, HypoPG simulation, and workspace-confined trace analysis without raw SQL execution.
   - **`marc14444/laravel-query-autopsy`** ([`packages/laravel/`](./packages/laravel/)): Dev-only Composer package capturing sanitized Eloquent queries in `local`/`testing` into `.query-autopsy/traces.jsonl` + `php artisan query:autopsy`.
-- **Slow Query Explorer Sidebar**: Inspect Top 10 slowest server queries from PostgreSQL `pg_stat_statements` or MySQL `performance_schema` in 1 click (on demand — zero silent background DB calls).
+- **Slow Query Explorer & Runtime N+1 Trace Inspector**: Inspect Top 10 slowest server queries from PostgreSQL `pg_stat_statements` or MySQL `performance_schema` in 1 click, AND browse live `.query-autopsy/traces.jsonl` **N+1 bursts** (`QueryAutopsy: Runtime Traces (N+1)`) with instant jump-to-`file:line` and 1-click `EXPLAIN` plans.
 - **Safe Multi-Profile & Onboarding**: Guided Setup (`127.0.0.1` default, auto-encoding for special characters, SSL modes), auto-detection for `.env` / `docker-compose.yml` / `.sqlite` files, encrypted `SecretStorage` credentials, and Read-Only production locks (`[RO]`).
 
 ---

@@ -171,6 +171,7 @@ export async function executeInspectionWithUi(
   logger: LoggerPort,
   target?: InspectionTarget,
   onReportProduced?: ReportProducedCallback,
+  initialParameters?: readonly unknown[],
 ): Promise<void> {
   const executeWithProgress = async (
     parameters?: readonly unknown[],
@@ -188,7 +189,7 @@ export async function executeInspectionWithUi(
     );
 
   try {
-    const report = await executeWithProgress();
+    const report = await executeWithProgress(initialParameters);
     onReportProduced?.(report, target);
     notifySummary(report);
   } catch (err) {
@@ -208,6 +209,7 @@ export async function executeInspectionWithUi(
             logger,
             target,
             onReportProduced,
+            initialParameters,
           );
         }
       }
