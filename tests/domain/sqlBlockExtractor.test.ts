@@ -143,4 +143,37 @@ describe('extractSqlBlocks', () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.sql).toContain('FROM "cards"."card"');
   });
+
+  it('extracts PHP / Laravel DB::select, PDO::prepare, heredocs, and nowdocs while normalizing :named params', () => {
+    const phpCode = `<?php
+      $nonSql = "Select a payment method from the dropdown";
+      $interpolated = "SELECT * FROM {$dynamicTable} WHERE id = 1";
+      $fragment = $query->whereRaw('total > ?', [100]);
+
+      $orders = DB::select(
+        'SELECT id, status FROM orders WHERE user_id = ? AND deleted_at IS NULL',
+        [$userId]
+      );
+
+      $stmt = $pdo->prepare(<<<'SQL'
+        SELECT id, amount
+        FROM invoices
+        WHERE customer_email = :email AND issued_at::date >= :since
+      SQL);
+
+      // sql
+      $reportSql = <<<SQL
+        SELECT count(*) FROM audit_events WHERE tenant_id = ?
+      SQL;
+    `;
+
+    const blocks = extractSqlBlocks(phpCode, 'php', 'app/Http/Controllers/OrderController.php');
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]?.sourceKind).toBe('php-sql');
+    expect(blocks[0]?.sql).toBe(
+      'SELECT id, status FROM orders WHERE user_id = ? AND deleted_at IS NULL',
+    );
+    expect(blocks[1]?.sql).toContain('customer_email = $1 AND issued_at::date >= $2');
+    expect(blocks[2]?.sql).toContain('FROM audit_events WHERE tenant_id = ?');
+  });
 });

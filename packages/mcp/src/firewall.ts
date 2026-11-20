@@ -1,4 +1,7 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import {
+  analyzeQueryTraces,
   assertSafeSqlConstructs,
   classifySqlStatement,
   type DatabaseEngine,
@@ -12,6 +15,7 @@ import {
   isLoopbackHost,
   type LoggerPort,
   MissingConnectionError,
+  parseQueryTraceStream,
   type PlanNode,
   type ProfileEnvironment,
   QueryExecutionError,
@@ -21,6 +25,7 @@ import {
   type RuntimeSettings,
   sanitizeConnectionDisplayTarget,
   sanitizeSqlError,
+  selectExplainCandidatesForTrace,
   SimulateIndexService,
   type SlowQueryPort,
   type SlowQuerySortBy,
@@ -56,6 +61,7 @@ export interface McpFirewallOptions {
   readonly statementTimeoutMs?: number | undefined;
   readonly seqScanRowThreshold?: number | undefined;
   readonly redactLiterals?: boolean | undefined;
+  readonly workspaceRoot?: string | undefined;
   readonly logger?: LoggerPort | undefined;
   readonly queryExecutor?: QueryExecutorPort | undefined;
   readonly slowQueryReader?: SlowQueryPort | undefined;
@@ -106,6 +112,28 @@ function readRequiredString(
   const val = args[key];
   if (typeof val !== 'string' || val.trim().length === 0) {
     throw new InvalidToolArgumentsError(`"${key}" must be a non-empty string.`);
+  }
+  if (val.length > maxLength) {
+    throw new InvalidToolArgumentsError(
+      `"${key}" exceeds maximum length of ${maxLength} characters.`,
+    );
+  }
+  return val;
+}
+
+function readOptionalString(
+  args: Record<string, unknown>,
+  key: string,
+  maxLength = 32_768,
+): string | undefined {
+  const val = args[key];
+  if (val === undefined) {
+    return undefined;
+  }
+  if (typeof val !== 'string' || val.trim().length === 0) {
+    throw new InvalidToolArgumentsError(
+      `"${key}" must be a non-empty string when provided.`,
+    );
   }
   if (val.length > maxLength) {
     throw new InvalidToolArgumentsError(
@@ -231,6 +259,7 @@ export class McpFirewallServer {
   private readonly environment: ProfileEnvironment;
   private readonly allowAnalyze: boolean;
   private readonly redactLiterals: boolean;
+  private readonly workspaceRoot: string;
   private readonly displayTarget: string;
   private readonly logger: LoggerPort;
   private readonly queryExecutor: QueryExecutorPort | undefined;
@@ -247,6 +276,7 @@ export class McpFirewallServer {
     };
 
     const connectionString = options.connectionString?.trim() || undefined;
+    this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.engine =
       options.engine ??
       (connectionString
@@ -452,6 +482,49 @@ export class McpFirewallServer {
           },
         },
       },
+      {
+        name: 'autopsy_analyze_traces',
+        description:
+          'Analyze universal .query-autopsy/traces.jsonl ORM execution logs to detect N+1 bursts (N_PLUS_ONE_BURST) and slow queries (SLOW_TRACE_QUERY). Strictly workspace-confined (.jsonl/.ndjson only), scrubs PII literals and raw bindings, and optionally runs read-only EXPLAIN estimate on top READ offenders.',
+        annotations: READ_ONLY_TOOL_ANNOTATIONS,
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            tracePath: {
+              type: 'string',
+              description:
+                'Relative path inside workspace to a .jsonl or .ndjson trace file (defaults to ".query-autopsy/traces.jsonl" when traceContent is omitted).',
+            },
+            traceContent: {
+              type: 'string',
+              description:
+                'Inline JSONL trace content to analyze (up to 512 KB, mutually exclusive with tracePath).',
+            },
+            nPlusOneThreshold: {
+              type: 'number',
+              minimum: 2,
+              maximum: 1000,
+              description:
+                'Minimum identical normalized executions per requestId to flag N_PLUS_ONE_BURST (default: 3).',
+            },
+            slowMsThreshold: {
+              type: 'number',
+              minimum: 1,
+              maximum: 600000,
+              description:
+                'Duration threshold in ms to flag SLOW_TRACE_QUERY (default: 200).',
+            },
+            explainTop: {
+              type: 'number',
+              minimum: 0,
+              maximum: 5,
+              description:
+                'Optional number of top offending READ queries to inspect via read-only EXPLAIN estimate (0-5, default: 0).',
+            },
+          },
+        },
+      },
     ];
   }
 
@@ -474,6 +547,9 @@ export class McpFirewallServer {
           break;
         case 'autopsy_list_slow_queries':
           payload = await this.handleListSlowQueries(rawArgs);
+          break;
+        case 'autopsy_analyze_traces':
+          payload = await this.handleAnalyzeTraces(rawArgs);
           break;
         default:
           throw new InvalidToolArgumentsError(
@@ -664,6 +740,152 @@ export class McpFirewallServer {
     };
   }
 
+  private async handleAnalyzeTraces(
+    rawArgs: unknown,
+  ): Promise<Record<string, unknown>> {
+    const MAX_TRACE_FILE_BYTES = 10 * 1024 * 1024;
+    const MAX_INLINE_TRACE_CHARS = 512 * 1024;
+
+    const args = assertPlainArgsObject(
+      rawArgs,
+      new Set([
+        'tracePath',
+        'traceContent',
+        'nPlusOneThreshold',
+        'slowMsThreshold',
+        'explainTop',
+      ]),
+    );
+
+    const tracePathArg = readOptionalString(args, 'tracePath', 1024);
+    const traceContentArg = readOptionalString(
+      args,
+      'traceContent',
+      MAX_INLINE_TRACE_CHARS,
+    );
+    if (tracePathArg !== undefined && traceContentArg !== undefined) {
+      throw new InvalidToolArgumentsError(
+        'Provide either "tracePath" or "traceContent", not both.',
+      );
+    }
+
+    const nPlusOneThreshold = Math.trunc(
+      readOptionalNumber(args, 'nPlusOneThreshold', 2, 1000) ?? 3,
+    );
+    const slowMsThreshold =
+      readOptionalNumber(args, 'slowMsThreshold', 1, 600_000) ?? 200;
+    const explainTop = Math.trunc(
+      readOptionalNumber(args, 'explainTop', 0, 5) ?? 0,
+    );
+
+    let rawJsonl: string;
+    let sourceLabel: string;
+
+    if (traceContentArg !== undefined) {
+      rawJsonl = traceContentArg;
+      sourceLabel = 'inline';
+    } else {
+      const requestedPath = tracePathArg ?? '.query-autopsy/traces.jsonl';
+      const resolvedFile = await resolveSafeWorkspaceTracePath(
+        this.workspaceRoot,
+        requestedPath,
+        MAX_TRACE_FILE_BYTES,
+      );
+      rawJsonl = await fs.readFile(resolvedFile, 'utf-8');
+      sourceLabel = path.relative(this.workspaceRoot, resolvedFile) || requestedPath;
+    }
+
+    const parsed = parseQueryTraceStream(rawJsonl, {
+      defaultEngine: this.engine,
+    });
+    const analysis = analyzeQueryTraces(parsed.entries, {
+      defaultEngine: this.engine,
+      nPlusOneWarningThreshold: nPlusOneThreshold,
+      nPlusOneCriticalThreshold: Math.max(nPlusOneThreshold + 1, 10),
+      slowQueryMsThreshold: slowMsThreshold,
+      redact: this.redactLiterals,
+    });
+
+    const explainedOffenders: Array<Record<string, unknown>> = [];
+    const explainNotes: Array<{ readonly fingerprint: string; readonly reason: string }> = [];
+
+    if (explainTop > 0) {
+      if (!this.inspectService) {
+        throw new MissingConnectionError();
+      }
+      const candidates = selectExplainCandidatesForTrace(
+        parsed.entries,
+        analysis,
+        explainTop,
+        this.engine,
+      );
+
+      for (const candidate of candidates) {
+        try {
+          const classified = classifySqlStatement(candidate.rawSql, this.engine);
+          if (classified.kind !== 'READ') {
+            explainNotes.push({
+              fingerprint: candidate.fingerprint,
+              reason: `Skipped non-READ statement kind "${classified.kind}" inside read-only MCP trace replay.`,
+            });
+            continue;
+          }
+
+          const needsParams = classified.parameterIndices.length > 0;
+          const params = needsParams ? candidate.bindings : undefined;
+          if (needsParams && (!params || params.length === 0)) {
+            explainNotes.push({
+              fingerprint: candidate.fingerprint,
+              reason: 'Skipped parameterized trace query without recorded bindings.',
+            });
+            continue;
+          }
+
+          const report = await this.inspectService.execute({
+            rawSql: candidate.rawSql,
+            mode: 'estimate',
+            ...(params !== undefined ? { parameters: params } : {}),
+          });
+
+          explainedOffenders.push({
+            fingerprint: candidate.fingerprint,
+            ...(candidate.file ? { file: candidate.file } : {}),
+            ...(candidate.line !== undefined ? { line: candidate.line } : {}),
+            ...this.formatSafeInspectionPayload(report),
+          });
+        } catch (err) {
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const sqlState =
+            err instanceof QueryExecutionError ? err.sqlState : undefined;
+          explainNotes.push({
+            fingerprint: candidate.fingerprint,
+            reason: sanitizeSqlError(rawMsg, sqlState),
+          });
+        }
+      }
+    }
+
+    return {
+      trustBoundary: 'untrusted_database_metadata',
+      target: this.displayTarget,
+      engine: this.engine,
+      source: sourceLabel,
+      skippedLines: parsed.skippedLines,
+      truncated: parsed.truncated,
+      warnings: parsed.warnings,
+      summary: {
+        totalQueries: analysis.totalQueries,
+        totalDurationMs: analysis.totalDurationMs,
+        distinctFingerprints: analysis.distinctFingerprints,
+        requestCount: analysis.requestCount,
+      },
+      diagnostics: analysis.diagnostics,
+      topOffenders: analysis.topOffenders,
+      ...(explainedOffenders.length > 0 ? { explainedOffenders } : {}),
+      ...(explainNotes.length > 0 ? { explainNotes } : {}),
+    };
+  }
+
   private formatSafeInspectionPayload(
     report: InspectionReport,
   ): Record<string, unknown> {
@@ -712,4 +934,70 @@ export class McpFirewallServer {
   async dispose(): Promise<void> {
     await this.queryExecutor?.dispose();
   }
+}
+
+async function resolveSafeWorkspaceTracePath(
+  workspaceRoot: string,
+  rawPath: string,
+  maxBytes: number,
+): Promise<string> {
+  if (rawPath.includes('\0') || rawPath.trim().length === 0) {
+    throw new InvalidToolArgumentsError(
+      '"tracePath" must be a valid relative path.',
+    );
+  }
+
+  const rootReal = await fs.realpath(workspaceRoot);
+  const candidateLexical = path.resolve(rootReal, rawPath.trim());
+  const relLexical = path.relative(rootReal, candidateLexical);
+
+  if (!relLexical || relLexical.startsWith('..') || path.isAbsolute(relLexical)) {
+    throw new UnsafeQueryError(
+      'Access denied: tracePath must stay confined within the workspace directory.',
+    );
+  }
+
+  const lexicalExt = path.extname(candidateLexical).toLowerCase();
+  if (lexicalExt !== '.jsonl' && lexicalExt !== '.ndjson') {
+    throw new UnsafeQueryError(
+      'Access denied: tracePath must reference a .jsonl or .ndjson file.',
+    );
+  }
+
+  let targetReal: string;
+  try {
+    targetReal = await fs.realpath(candidateLexical);
+  } catch {
+    throw new InvalidToolArgumentsError(
+      `Trace file "${relLexical}" does not exist inside workspace.`,
+    );
+  }
+
+  const relReal = path.relative(rootReal, targetReal);
+  if (!relReal || relReal.startsWith('..') || path.isAbsolute(relReal)) {
+    throw new UnsafeQueryError(
+      'Access denied: tracePath symlink escapes the workspace directory.',
+    );
+  }
+
+  const realExt = path.extname(targetReal).toLowerCase();
+  if (realExt !== '.jsonl' && realExt !== '.ndjson') {
+    throw new UnsafeQueryError(
+      'Access denied: tracePath target must be a .jsonl or .ndjson file.',
+    );
+  }
+
+  const stat = await fs.stat(targetReal);
+  if (!stat.isFile()) {
+    throw new InvalidToolArgumentsError(
+      '"tracePath" must point to a regular file.',
+    );
+  }
+  if (stat.size > maxBytes) {
+    throw new InvalidToolArgumentsError(
+      `Trace file exceeds maximum allowed size (${maxBytes} bytes).`,
+    );
+  }
+
+  return targetReal;
 }

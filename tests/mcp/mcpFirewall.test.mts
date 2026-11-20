@@ -99,6 +99,7 @@ describe('@query-autopsy/mcp Zero-Trust Firewall & stdio JSON-RPC', () => {
       'autopsy_explain',
       'autopsy_simulate_index',
       'autopsy_list_slow_queries',
+      'autopsy_analyze_traces',
     ]);
     expect(names).not.toContain('apply_index');
     expect(names).not.toContain('run_sql');
@@ -346,7 +347,7 @@ describe('@query-autopsy/mcp Zero-Trust Firewall & stdio JSON-RPC', () => {
     const listResp = JSON.parse(outputs[1]!) as {
       result: { tools: Array<{ name: string }> };
     };
-    expect(listResp.result.tools).toHaveLength(4);
+    expect(listResp.result.tools).toHaveLength(5);
 
     const callResp = JSON.parse(outputs[2]!) as {
       result: { isError?: boolean; structuredContent: { engine: string; sql: string; diagnostics: Array<{ ruleId: string }> } };
@@ -381,5 +382,105 @@ describe('@query-autopsy/mcp Zero-Trust Firewall & stdio JSON-RPC', () => {
     expect(custom.allowAnalyze).toBe(true);
     expect(custom.environment).toBe('local');
     expect(custom.redactLiterals).toBe(false);
+  });
+
+  it('analyzes workspace JSONL traces safely (`autopsy_analyze_traces`), strips PII/bindings, and blocks traversal & symlink escapes', async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'query-autopsy-mcp-ws-'));
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'query-autopsy-mcp-out-'));
+    tempDirs.push(workspaceDir, outsideDir);
+
+    const traceDir = path.join(workspaceDir, '.query-autopsy');
+    await fs.mkdir(traceDir, { recursive: true });
+    const traceFile = path.join(traceDir, 'traces.jsonl');
+    await fs.writeFile(
+      traceFile,
+      [
+        JSON.stringify({
+          engine: 'postgresql',
+          sql: "SELECT id FROM orders WHERE customer_email = 'alice@vip.com' AND status = 'open'",
+          bindings: ['secret_binding_token'],
+          durationMs: 12,
+          requestId: 'req-burst',
+        }),
+        JSON.stringify({
+          engine: 'postgresql',
+          sql: "SELECT id FROM orders WHERE customer_email = 'bob@vip.com' AND status = 'open'",
+          bindings: ['secret_binding_token_2'],
+          durationMs: 15,
+          requestId: 'req-burst',
+        }),
+        JSON.stringify({
+          engine: 'postgresql',
+          sql: "SELECT id FROM orders WHERE customer_email = 'carol@vip.com' AND status = 'open'",
+          bindings: ['secret_binding_token_3'],
+          durationMs: 260,
+          requestId: 'req-burst',
+        }),
+      ].join('\n'),
+      'utf-8',
+    );
+
+    await fs.writeFile(path.join(workspaceDir, '.env'), 'DATABASE_URL=secret', 'utf-8');
+    const outsideSecret = path.join(outsideDir, 'outside.jsonl');
+    await fs.writeFile(
+      outsideSecret,
+      JSON.stringify({ sql: 'SELECT 1', requestId: 'r1' }),
+      'utf-8',
+    );
+    const symlinkLeak = path.join(traceDir, 'escape.jsonl');
+    await fs.symlink(outsideSecret, symlinkLeak);
+
+    const exec = createMockExecutor();
+    const firewall = new McpFirewallServer({
+      connectionString: 'postgresql://postgres@127.0.0.1:5432/dev',
+      workspaceRoot: workspaceDir,
+      queryExecutor: exec,
+    });
+
+    // 1. Default `.query-autopsy/traces.jsonl` + read-only explainTop=1
+    const ok = await firewall.callTool('autopsy_analyze_traces', {
+      explainTop: 1,
+    });
+    expect(ok.isError).toBeUndefined();
+    const payloadText = ok.content[0]?.text ?? '';
+    expect(payloadText).not.toContain('alice@vip.com');
+    expect(payloadText).not.toContain('secret_binding_token');
+    expect(payloadText).toContain('[REDACTED]');
+    const data = ok.structuredContent as {
+      diagnostics: Array<{ ruleId: string }>;
+      explainedOffenders: unknown[];
+    };
+    expect(data.diagnostics.some((d) => d.ruleId === 'N_PLUS_ONE_BURST')).toBe(true);
+    expect(data.diagnostics.some((d) => d.ruleId === 'SLOW_TRACE_QUERY')).toBe(true);
+    expect(data.explainedOffenders).toHaveLength(1);
+    expect(exec.executeExplain).toHaveBeenCalledTimes(1);
+
+    // 2. Reject path traversal, absolute host path, non-JSONL workspace file, and escaping symlink
+    for (const maliciousPath of [
+      '../outside.jsonl',
+      outsideSecret,
+      '.env',
+      '.query-autopsy/escape.jsonl',
+    ]) {
+      const blocked = await firewall.callTool('autopsy_analyze_traces', {
+        tracePath: maliciousPath,
+      });
+      expect(blocked.isError).toBe(true);
+      expect(blocked.content[0]?.text).toContain('UNSAFE_QUERY');
+    }
+
+    // 3. Inline traceContent works offline too
+    const inlineRes = await firewall.callTool('autopsy_analyze_traces', {
+      traceContent: [
+        JSON.stringify({ sql: 'SELECT 1 FROM items WHERE order_id = 1', requestId: 'r' }),
+        JSON.stringify({ sql: 'SELECT 1 FROM items WHERE order_id = 2', requestId: 'r' }),
+        JSON.stringify({ sql: 'SELECT 1 FROM items WHERE order_id = 3', requestId: 'r' }),
+      ].join('\n'),
+    });
+    expect(inlineRes.isError).toBeUndefined();
+    const inlineData = inlineRes.structuredContent as {
+      diagnostics: Array<{ ruleId: string }>;
+    };
+    expect(inlineData.diagnostics[0]?.ruleId).toBe('N_PLUS_ONE_BURST');
   });
 });
