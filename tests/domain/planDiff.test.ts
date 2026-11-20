@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { InspectionReport } from '../../src/domain/models/diagnostic.js';
 import { formatMarkdownPrReport } from '../../src/domain/services/markdownReportFormatter.js';
-import { computePlanDiff } from '../../src/domain/services/planDiff.js';
+import {
+  computePlanDiff,
+  selectDefaultBaselineIndex,
+} from '../../src/domain/services/planDiff.js';
 import { parsePostgreSqlPlan } from '../../src/domain/services/planParser.js';
 
 describe('planDiff & markdownReportFormatter', () => {
@@ -117,5 +120,39 @@ describe('planDiff & markdownReportFormatter', () => {
     expect(md).toContain('#### Before / After Comparison');
     expect(md).toContain('14.20 ms | 0.10 ms');
     expect(md).toContain('No performance bottlenecks detected.');
+  });
+
+  it('flags sub-ms timing and minor buffer jitter instead of alarming percentages', () => {
+    const fastRunA: InspectionReport = {
+      ...afterReport,
+      plan: { ...afterPlan, executionTimeMs: 0.23 },
+    };
+    const fastRunB: InspectionReport = {
+      ...afterReport,
+      plan: {
+        ...afterPlan,
+        executionTimeMs: 0.59,
+        totalBuffers: { ...afterPlan.totalBuffers, sharedHitBlocks: 17 },
+      },
+    };
+
+    const diff = computePlanDiff(fastRunA, fastRunB);
+    expect(diff.executionTimeIsNoise).toBe(true);
+    expect(diff.blocksDeltaIsNoise).toBe(true);
+
+    const md = formatMarkdownPrReport(fastRunB, diff);
+    expect(md).toContain('sub-ms jitter');
+    expect(md).toContain('minor jitter');
+    expect(md).not.toContain('+156.5%');
+  });
+
+  it('selects pre-optimization baseline automatically across repeated post-index re-runs', () => {
+    const fastRunAgain: InspectionReport = {
+      ...afterReport,
+      inspectedAtIso: '2026-11-19T14:06:00.000Z',
+    };
+    expect(selectDefaultBaselineIndex([beforeReport, afterReport, fastRunAgain])).toBe(0);
+    expect(selectDefaultBaselineIndex([afterReport, fastRunAgain])).toBe(0);
+    expect(selectDefaultBaselineIndex([beforeReport])).toBeUndefined();
   });
 });

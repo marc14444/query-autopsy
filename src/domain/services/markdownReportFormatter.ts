@@ -44,15 +44,21 @@ export function formatMarkdownPrReport(
       comparison.previousExecutionTimeMs !== undefined &&
       comparison.currentExecutionTimeMs !== undefined
     ) {
+      const timeDeltaText = comparison.executionTimeIsNoise
+        ? '~unchanged (sub-ms jitter)'
+        : `**${formatDeltaPct(comparison.executionTimeDeltaPercent)}**`;
       lines.push(
-        `| Execution Time | ${comparison.previousExecutionTimeMs.toFixed(2)} ms | ${comparison.currentExecutionTimeMs.toFixed(2)} ms | **${formatDeltaPct(comparison.executionTimeDeltaPercent)}** |`,
+        `| Execution Time | ${comparison.previousExecutionTimeMs.toFixed(2)} ms | ${comparison.currentExecutionTimeMs.toFixed(2)} ms | ${timeDeltaText} |`,
       );
     }
     lines.push(
       `| Total Cost | ${comparison.previousCost.toFixed(1)} | ${comparison.currentCost.toFixed(1)} | **${formatDeltaPct(comparison.costDeltaPercent)}** |`,
     );
+    const blocksDeltaText = comparison.blocksDeltaIsNoise
+      ? '~unchanged (minor jitter)'
+      : `**${formatDeltaPct(comparison.blocksDeltaPercent)}**`;
     lines.push(
-      `| Total Buffers | ${comparison.previousSharedBlocks.toLocaleString('en-US')} | ${comparison.currentSharedBlocks.toLocaleString('en-US')} | **${formatDeltaPct(comparison.blocksDeltaPercent)}** |`,
+      `| Total Buffers | ${comparison.previousSharedBlocks.toLocaleString('en-US')} | ${comparison.currentSharedBlocks.toLocaleString('en-US')} | ${blocksDeltaText} |`,
     );
     lines.push(
       `| Plan Shape | \`${comparison.previousPlanSummary}\` | \`${comparison.currentPlanSummary}\` | Issues: ${comparison.previousDiagnosticsCount} → ${comparison.currentDiagnosticsCount} |`,
