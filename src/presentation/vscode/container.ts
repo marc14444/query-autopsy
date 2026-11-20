@@ -72,6 +72,7 @@ const SUPPORTED_DOCUMENT_SELECTORS: vscode.DocumentSelector = [
   { language: 'javascriptreact' },
   { language: 'python' },
   { language: 'go' },
+  { language: 'php' },
   { pattern: '**/*.sql' },
 ];
 

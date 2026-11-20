@@ -3,11 +3,11 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  analyzeQueryTraces,
   assertSafeSqlConstructs,
   classifySqlStatement,
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
-  type DiagnosticFinding,
   type DiagnosticSeverity,
   DomainError,
   type ExplainMode,
@@ -15,16 +15,20 @@ import {
   extractSqlBlocks,
   extractSqlStatementSpans,
   formatMarkdownPrReport,
+  formatTraceAnalysisMarkdown,
   type InspectionReport,
   InspectQueryService,
   isLoopbackHost,
   type LoggerPort,
+  parseQueryTraceStream,
   type ProfileEnvironment,
   QueryExecutionError,
   type QueryExecutorPort,
+  type QueryTraceAnalysisResult,
   type ReportPresenterPort,
   type RuntimeSettings,
   sanitizeSqlError,
+  selectExplainCandidatesForTrace,
   StaticConnectionConfig,
 } from '@query-autopsy/core';
 import { MultiEngineQueryExecutor } from '@query-autopsy/executors';
@@ -64,6 +68,7 @@ const EXT_TO_LANGUAGE_ID: Record<string, string> = {
   '.jsx': 'javascriptreact',
   '.py': 'python',
   '.go': 'go',
+  '.php': 'php',
 };
 
 const SKIPPED_SCAN_DIRS = new Set([
@@ -76,10 +81,9 @@ const SKIPPED_SCAN_DIRS = new Set([
   '.next',
 ]);
 
-export function severityMeetsThreshold(
-  findings: readonly DiagnosticFinding[],
-  threshold: FailOnThreshold,
-): boolean {
+export function severityMeetsThreshold<
+  T extends { readonly severity: DiagnosticSeverity },
+>(findings: readonly T[], threshold: FailOnThreshold): boolean {
   if (threshold === 'none') {
     return false;
   }
@@ -106,12 +110,35 @@ function toSarifLevel(
   }
 }
 
-export function formatSarifReports(
-  items: readonly SarifSourceItem[],
+function buildSarifEnvelope(
+  rulesMap: Map<string, Record<string, unknown>>,
+  results: Array<Record<string, unknown>>,
 ): Record<string, unknown> {
-  const rulesMap = new Map<string, Record<string, unknown>>();
-  const results: Array<Record<string, unknown>> = [];
+  return {
+    $schema:
+      'https://raw.githubusercontent.com/oasis-tcs/sarif-json/master/Schemata/sarif-schema-2.1.0.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: 'QueryAutopsy',
+            version: '1.4.0',
+            informationUri: 'https://github.com/marc14444/query-autopsy',
+            rules: Array.from(rulesMap.values()),
+          },
+        },
+        results,
+      },
+    ],
+  };
+}
 
+function appendPlanSarifResults(
+  items: readonly SarifSourceItem[],
+  rulesMap: Map<string, Record<string, unknown>>,
+  results: Array<Record<string, unknown>>,
+): void {
   for (const item of items) {
     for (const finding of item.report.diagnostics) {
       if (!rulesMap.has(finding.ruleId)) {
@@ -125,7 +152,7 @@ export function formatSarifReports(
       }
 
       const uri = item.file ?? 'query.sql';
-      const startLine = (item.startLine ?? 0) + 1;
+      const startLine = Math.max(1, (item.startLine ?? 0) + 1);
 
       results.push({
         ruleId: finding.ruleId,
@@ -146,25 +173,58 @@ export function formatSarifReports(
       });
     }
   }
+}
 
-  return {
-    $schema:
-      'https://raw.githubusercontent.com/oasis-tcs/sarif-json/master/Schemata/sarif-schema-2.1.0.json',
-    version: '2.1.0',
-    runs: [
-      {
-        tool: {
-          driver: {
-            name: 'QueryAutopsy',
-            version: '1.3.1',
-            informationUri: 'https://github.com/marc14444/query-autopsy',
-            rules: Array.from(rulesMap.values()),
+export function formatSarifReports(
+  items: readonly SarifSourceItem[],
+): Record<string, unknown> {
+  const rulesMap = new Map<string, Record<string, unknown>>();
+  const results: Array<Record<string, unknown>> = [];
+  appendPlanSarifResults(items, rulesMap, results);
+  return buildSarifEnvelope(rulesMap, results);
+}
+
+function formatTraceSarifReport(
+  analysis: QueryTraceAnalysisResult,
+  explainedItems: readonly SarifSourceItem[],
+  defaultTraceFile: string,
+): Record<string, unknown> {
+  const rulesMap = new Map<string, Record<string, unknown>>();
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const finding of analysis.diagnostics) {
+    if (!rulesMap.has(finding.ruleId)) {
+      rulesMap.set(finding.ruleId, {
+        id: finding.ruleId,
+        name: finding.ruleId,
+        shortDescription: { text: finding.ruleId },
+        help: { text: finding.recommendation },
+        defaultConfiguration: { level: toSarifLevel(finding.severity) },
+      });
+    }
+
+    const uri = finding.file ?? defaultTraceFile;
+    const startLine = Math.max(1, finding.line ?? 1);
+
+    results.push({
+      ruleId: finding.ruleId,
+      level: toSarifLevel(finding.severity),
+      message: {
+        text: `${finding.title} — ${finding.detail} SQL: ${finding.sampleSql}`,
+      },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri },
+            region: { startLine },
           },
         },
-        results,
-      },
-    ],
-  };
+      ],
+    });
+  }
+
+  appendPlanSarifResults(explainedItems, rulesMap, results);
+  return buildSarifEnvelope(rulesMap, results);
 }
 
 function createNoopPresenter(): ReportPresenterPort {
@@ -229,12 +289,13 @@ async function collectScannableFiles(targetPath: string): Promise<string[]> {
 
 function getHelpText(): string {
   return [
-    'QueryAutopsy CLI — Language-agnostic SQL EXPLAIN profiler & CI gate',
+    'QueryAutopsy CLI — Language-agnostic SQL EXPLAIN profiler, trace analyzer & CI gate',
     '',
     'Usage:',
     '  query-autopsy explain [--sql <query> | --file <path> | --stdin] [options]',
     '  query-autopsy ci [--file <path> | --dir <path> | --sql <query> | --stdin] [options]',
     '  query-autopsy check [--sql <query> | --file <path> | --dir <path> | --stdin] [options]',
+    '  query-autopsy trace [--file <path> | --stdin] [options]',
     '',
     'Options:',
     '  --uri <dsn>               Database URI (fallback: QUERY_AUTOPSY_URI, DATABASE_URL)',
@@ -242,14 +303,18 @@ function getHelpText(): string {
     '  --mode <estimate|analyze> EXPLAIN mode (default: estimate)',
     '  --env <local|staging|production> Safety level (production enforces Read-Only lock)',
     '  --format <markdown|json|sarif> Output format (default: markdown, ci defaults to json)',
-    '  --fail-on <none|info|warning|critical> Exit code 2 threshold (default: none on explain, critical on ci)',
+    '  --fail-on <none|info|warning|critical> Exit code 2 threshold (default: none on explain/trace, critical on ci)',
     '  --params <json>           Positional parameter array JSON (e.g. "[42, \\"pending\\"]")',
     '  --timeout <ms>            statement_timeout ms (default: 5000)',
     '  --threshold <rows>        Seq Scan row warning threshold (default: 1000)',
+    '  --threshold-n1 <count>    N+1 identical-query burst threshold per requestId (default: 3)',
+    '  --slow-ms <ms>            Slow trace query warning threshold in ms (default: 200)',
+    '  --explain-top <N>         Run EXPLAIN on top N offending trace queries (requires --uri)',
     '  --redact                  Redact SQL string literals and sanitize error outputs',
     '  --allow-write-analyze     Allow ANALYZE on WRITE statements inside ROLLBACK transaction',
     '  --verbose                 Emit diagnostic progress logs to stderr',
     '  -h, --help                Show help',
+    '  -v, --version             Show version',
   ].join('\n');
 }
 
@@ -277,12 +342,15 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   if (first === '-v' || first === '--version') {
-    io.stdout('1.3.1\n');
+    io.stdout('1.4.0\n');
     return 0;
   }
 
   const command =
-    first === 'explain' || first === 'ci' || first === 'check'
+    first === 'explain' ||
+    first === 'ci' ||
+    first === 'check' ||
+    first === 'trace'
       ? first
       : undefined;
   const flagArgs = command ? argv.slice(1) : [...argv];
@@ -304,6 +372,9 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       params: { type: 'string' },
       timeout: { type: 'string', default: '5000' },
       threshold: { type: 'string', default: '1000' },
+      'threshold-n1': { type: 'string', default: '3' },
+      'slow-ms': { type: 'string', default: '200' },
+      'explain-top': { type: 'string', default: '0' },
       redact: { type: 'boolean', default: false },
       'allow-write-analyze': { type: 'boolean', default: false },
       verbose: { type: 'boolean', default: false },
@@ -381,12 +452,6 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
 
     const dsn =
       values.uri ?? io.env['QUERY_AUTOPSY_URI'] ?? io.env['DATABASE_URL'];
-    if (!dsn) {
-      throw new Error(
-        'Missing database connection URI. Pass --uri <dsn> or set QUERY_AUTOPSY_URI / DATABASE_URL.',
-      );
-    }
-
     const runtimeSettings: RuntimeSettings = {
       statementTimeoutMs: Math.max(100, Number(values.timeout) || 5000),
       allowWriteAnalyze: values['allow-write-analyze'] === true,
@@ -395,29 +460,44 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       redactLiteralsInReports: redact,
     };
 
-    const resolvedEngine = engineOverride ?? detectDatabaseEngineFromUri(dsn);
-    const resolvedHost = extractConnectionHost(dsn, resolvedEngine);
-    const resolvedEnv: ProfileEnvironment =
-      envArg ?? (resolvedHost && !isLoopbackHost(resolvedHost) ? 'staging' : 'local');
+    if (resolvedCommand === 'trace') {
+      return await runTraceCommand(
+        {
+          file: values.file,
+          stdin: values.stdin === true,
+          dsn,
+          engineOverride,
+          mode,
+          envArg,
+          format,
+          failOn,
+          thresholdN1: Math.max(2, Number(values['threshold-n1']) || 3),
+          slowMs: Math.max(1, Number(values['slow-ms']) || 200),
+          explainTop: Math.max(
+            0,
+            Math.min(25, Math.trunc(Number(values['explain-top']) || 0)),
+          ),
+          runtimeSettings,
+          redact,
+          logger,
+        },
+        io,
+      );
+    }
 
-    const config = new StaticConnectionConfig({
-      connectionString: dsn,
+    if (!dsn) {
+      throw new Error(
+        'Missing database connection URI. Pass --uri <dsn> or set QUERY_AUTOPSY_URI / DATABASE_URL.',
+      );
+    }
+
+    const { resolvedEngine, executor, inspectService } = createCliInspectContext({
+      dsn,
+      engineOverride,
+      envArg,
       runtimeSettings,
-      environment: resolvedEnv,
-      engine: resolvedEngine,
-      profileId: 'cli-target',
-    });
-    const executor = io.createExecutor
-      ? io.createExecutor(logger)
-      : new MultiEngineQueryExecutor(logger, {
-          wasmPath: resolveDefaultSqlJsWasmPath(),
-        });
-
-    const inspectService = new InspectQueryService({
-      connectionConfig: config,
-      queryExecutor: executor,
-      reportPresenter: createNoopPresenter(),
       logger,
+      io,
     });
 
     try {
@@ -460,12 +540,11 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         return 0;
       }
 
-      const engine = detectDatabaseEngineFromUri(dsn);
       const collected: SarifSourceItem[] = [];
       let skippedParameterized = 0;
 
       for (const item of queries) {
-        const classified = classifySqlStatement(item.sql, engineOverride ?? engine);
+        const classified = classifySqlStatement(item.sql, resolvedEngine);
         if (classified.parameterIndices.length > 0 && !parsedParams) {
           skippedParameterized++;
           continue;
@@ -500,6 +579,231 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     io.stderr(`QueryAutopsy Error: ${message}\n`);
     return 1;
   }
+}
+
+function createCliInspectContext(opts: {
+  readonly dsn: string;
+  readonly engineOverride?: DatabaseEngine | undefined;
+  readonly envArg?: ProfileEnvironment | undefined;
+  readonly runtimeSettings: RuntimeSettings;
+  readonly logger: LoggerPort;
+  readonly io: CliIo;
+}): {
+  readonly resolvedEngine: DatabaseEngine;
+  readonly executor: QueryExecutorPort;
+  readonly inspectService: InspectQueryService;
+} {
+  const resolvedEngine = opts.engineOverride ?? detectDatabaseEngineFromUri(opts.dsn);
+  const resolvedHost = extractConnectionHost(opts.dsn, resolvedEngine);
+  const resolvedEnv: ProfileEnvironment =
+    opts.envArg ?? (resolvedHost && !isLoopbackHost(resolvedHost) ? 'staging' : 'local');
+
+  const config = new StaticConnectionConfig({
+    connectionString: opts.dsn,
+    runtimeSettings: opts.runtimeSettings,
+    environment: resolvedEnv,
+    engine: resolvedEngine,
+    profileId: 'cli-target',
+  });
+  const executor = opts.io.createExecutor
+    ? opts.io.createExecutor(opts.logger)
+    : new MultiEngineQueryExecutor(opts.logger, {
+        wasmPath: resolveDefaultSqlJsWasmPath(),
+      });
+
+  const inspectService = new InspectQueryService({
+    connectionConfig: config,
+    queryExecutor: executor,
+    reportPresenter: createNoopPresenter(),
+    logger: opts.logger,
+  });
+
+  return { resolvedEngine, executor, inspectService };
+}
+
+async function runTraceCommand(
+  opts: {
+    readonly file?: string | undefined;
+    readonly stdin: boolean;
+    readonly dsn?: string | undefined;
+    readonly engineOverride?: DatabaseEngine | undefined;
+    readonly mode: ExplainMode;
+    readonly envArg?: ProfileEnvironment | undefined;
+    readonly format: CliOutputFormat;
+    readonly failOn: FailOnThreshold;
+    readonly thresholdN1: number;
+    readonly slowMs: number;
+    readonly explainTop: number;
+    readonly runtimeSettings: RuntimeSettings;
+    readonly redact: boolean;
+    readonly logger: LoggerPort;
+  },
+  io: CliIo,
+): Promise<number> {
+  const sourceLabel = opts.stdin
+    ? 'stdin.jsonl'
+    : (opts.file ?? '.query-autopsy/traces.jsonl');
+  const rawTrace = opts.stdin
+    ? await io.readStdin()
+    : await fs.readFile(sourceLabel, 'utf-8');
+
+  const defaultEngine =
+    opts.engineOverride ??
+    (opts.dsn ? detectDatabaseEngineFromUri(opts.dsn) : 'postgresql');
+
+  const parsed = parseQueryTraceStream(rawTrace, { defaultEngine });
+  const analysis = analyzeQueryTraces(parsed.entries, {
+    defaultEngine,
+    nPlusOneWarningThreshold: opts.thresholdN1,
+    nPlusOneCriticalThreshold: Math.max(opts.thresholdN1 + 1, 10),
+    slowQueryMsThreshold: opts.slowMs,
+    redact: opts.redact,
+  });
+
+  const explainedItems: SarifSourceItem[] = [];
+  const explainNotes: Array<{ readonly fingerprint: string; readonly reason: string }> = [];
+
+  if (opts.explainTop > 0) {
+    if (!opts.dsn) {
+      throw new Error(
+        'Missing database connection URI for --explain-top. Pass --uri <dsn> or set QUERY_AUTOPSY_URI / DATABASE_URL.',
+      );
+    }
+
+    const { resolvedEngine, executor, inspectService } = createCliInspectContext({
+      dsn: opts.dsn,
+      engineOverride: opts.engineOverride,
+      envArg: opts.envArg,
+      runtimeSettings: opts.runtimeSettings,
+      logger: opts.logger,
+      io,
+    });
+
+    try {
+      const candidates = selectExplainCandidatesForTrace(
+        parsed.entries,
+        analysis,
+        opts.explainTop,
+        resolvedEngine,
+      );
+
+      for (const candidate of candidates) {
+        try {
+          const classified = classifySqlStatement(candidate.rawSql, resolvedEngine);
+          if (
+            classified.kind === 'DDL' ||
+            classified.kind === 'EXPLAIN' ||
+            classified.kind === 'UNKNOWN'
+          ) {
+            explainNotes.push({
+              fingerprint: candidate.fingerprint,
+              reason: `Skipped non-DML statement kind "${classified.kind}".`,
+            });
+            continue;
+          }
+          if (
+            classified.kind === 'WRITE' &&
+            opts.mode === 'analyze' &&
+            !opts.runtimeSettings.allowWriteAnalyze
+          ) {
+            explainNotes.push({
+              fingerprint: candidate.fingerprint,
+              reason:
+                'Skipped WRITE statement under EXPLAIN ANALYZE without --allow-write-analyze.',
+            });
+            continue;
+          }
+
+          const needsParams = classified.parameterIndices.length > 0;
+          const params = needsParams ? candidate.bindings : undefined;
+          if (needsParams && (!params || params.length === 0)) {
+            explainNotes.push({
+              fingerprint: candidate.fingerprint,
+              reason: 'Skipped parameterized trace query without recorded bindings.',
+            });
+            continue;
+          }
+
+          const report = await inspectService.execute({
+            rawSql: candidate.rawSql,
+            mode: opts.mode,
+            ...(params !== undefined ? { parameters: params } : {}),
+          });
+
+          explainedItems.push({
+            ...(candidate.file ? { file: candidate.file } : {}),
+            ...(candidate.line !== undefined
+              ? { startLine: Math.max(0, candidate.line - 1) }
+              : {}),
+            report,
+          });
+        } catch (err) {
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const sqlState =
+            err instanceof QueryExecutionError ? err.sqlState : undefined;
+          explainNotes.push({
+            fingerprint: candidate.fingerprint,
+            reason: opts.redact ? sanitizeSqlError(rawMsg, sqlState) : rawMsg,
+          });
+        }
+      }
+    } finally {
+      await executor.dispose();
+    }
+  }
+
+  if (opts.format === 'sarif') {
+    io.stdout(
+      `${JSON.stringify(formatTraceSarifReport(analysis, explainedItems, sourceLabel), null, 2)}\n`,
+    );
+  } else if (opts.format === 'json') {
+    io.stdout(
+      `${JSON.stringify(
+        {
+          source: sourceLabel,
+          skippedLines: parsed.skippedLines,
+          truncated: parsed.truncated,
+          warnings: parsed.warnings,
+          analysis,
+          ...(explainedItems.length > 0
+            ? {
+                explainedOffenders: explainedItems.map((item) => ({
+                  ...(item.file ? { file: item.file } : {}),
+                  ...(item.startLine !== undefined
+                    ? { startLine: item.startLine + 1 }
+                    : {}),
+                  report: item.report,
+                })),
+              }
+            : {}),
+          ...(explainNotes.length > 0 ? { explainNotes } : {}),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  } else {
+    io.stdout(`${formatTraceAnalysisMarkdown(analysis, sourceLabel)}\n`);
+    if (parsed.skippedLines > 0) {
+      io.stdout(`\n_Skipped ${parsed.skippedLines} malformed trace line(s)._\n`);
+    }
+    if (explainedItems.length > 0) {
+      io.stdout('\n### Explained Top Offenders\n\n');
+      emitFormattedReports(explainedItems, 'markdown', io);
+    }
+    if (explainNotes.length > 0) {
+      io.stdout('\n### Explain Skipped / Errors\n\n');
+      for (const note of explainNotes) {
+        io.stdout(`- \`${note.fingerprint}\`: ${note.reason}\n`);
+      }
+    }
+  }
+
+  const allFindings: Array<{ readonly severity: DiagnosticSeverity }> = [
+    ...analysis.diagnostics,
+    ...explainedItems.flatMap((c) => c.report.diagnostics),
+  ];
+  return severityMeetsThreshold(allFindings, opts.failOn) ? 2 : 0;
 }
 
 async function readSingleSqlInput(

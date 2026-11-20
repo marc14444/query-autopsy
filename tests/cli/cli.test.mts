@@ -268,4 +268,137 @@ describe('@query-autopsy/cli', () => {
     expect(parsed.sql).not.toContain('alice@example.com');
     expect(parsed.diagnostics[0]?.ruleId).toBe('SQLITE_FULL_TABLE_SCAN');
   });
+
+  it('analyzes .jsonl traces via `trace`, runs EXPLAIN on top offenders against SQLite, and emits SARIF', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'query-autopsy-cli-trace-'));
+    tempDirs.push(dir);
+
+    // Prepare real SQLite DB
+    const dbPath = path.join(dir, 'trace.sqlite');
+    const { default: initSqlJs } = await import('sql.js');
+    const wasmBytes = await fs.readFile(
+      path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'),
+    );
+    const wasmBuffer = new ArrayBuffer(wasmBytes.byteLength);
+    new Uint8Array(wasmBuffer).set(wasmBytes);
+    const SQL = await initSqlJs({
+      wasmBinary: wasmBuffer,
+      useOldExtensionFunctions: false,
+    });
+    const db = new SQL.Database();
+    db.run('CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);');
+    db.run("INSERT INTO users (email) VALUES ('alice@example.com');");
+    await fs.writeFile(dbPath, db.export());
+    db.close();
+
+    const traceFile = path.join(dir, 'traces.jsonl');
+    const traceLines = [
+      JSON.stringify({
+        engine: 'sqlite',
+        sql: "SELECT id FROM users WHERE email = 'secret1@corp.com'",
+        durationMs: 8.5,
+        requestId: 'req-42',
+        file: 'app/Http/Controllers/UsersController.php',
+        line: 24,
+      }),
+      JSON.stringify({
+        engine: 'sqlite',
+        sql: "SELECT id FROM users WHERE email = 'secret2@corp.com'",
+        durationMs: 9.2,
+        requestId: 'req-42',
+        file: 'app/Http/Controllers/UsersController.php',
+        line: 24,
+      }),
+      JSON.stringify({
+        engine: 'sqlite',
+        sql: "SELECT id FROM users WHERE email = 'secret3@corp.com'",
+        durationMs: 7.1,
+        requestId: 'req-42',
+        file: 'app/Http/Controllers/UsersController.php',
+        line: 24,
+      }),
+    ].join('\n');
+    await fs.writeFile(traceFile, traceLines, 'utf-8');
+
+    // Run JSON output offline check with --redact
+    const offlineIo = createTestIo();
+    const jsonCode = await runCli(
+      [
+        'trace',
+        '--file',
+        traceFile,
+        '--threshold-n1',
+        '3',
+        '--redact',
+        '--fail-on',
+        'warning',
+        '--format',
+        'json',
+      ],
+      offlineIo.io,
+    );
+    expect(jsonCode).toBe(2);
+    const jsonOut = JSON.parse(offlineIo.getStdout()) as {
+      analysis: {
+        diagnostics: Array<{ ruleId: string; sampleSql: string }>;
+      };
+    };
+    expect(jsonOut.analysis.diagnostics[0]?.ruleId).toBe('N_PLUS_ONE_BURST');
+    expect(jsonOut.analysis.diagnostics[0]?.sampleSql).not.toContain('secret1@corp.com');
+    expect(jsonOut.analysis.diagnostics[0]?.sampleSql).toContain('[REDACTED]');
+
+    // Run SARIF + --explain-top 1 against real SQLite WASM
+    let sarifStdout = '';
+    const realIo: CliIo = {
+      readStdin: async () => '',
+      stdout: (t) => {
+        sarifStdout += t;
+      },
+      stderr: () => undefined,
+      env: {},
+    };
+    const sarifCode = await runCli(
+      [
+        'trace',
+        '--file',
+        traceFile,
+        '--explain-top',
+        '1',
+        '--uri',
+        `sqlite://${dbPath}`,
+        '--redact',
+        '--fail-on',
+        'warning',
+        '--format',
+        'sarif',
+      ],
+      realIo,
+    );
+    expect(sarifCode).toBe(2);
+    const sarif = JSON.parse(sarifStdout) as {
+      version: string;
+      runs: Array<{ results: Array<{ ruleId: string }> }>;
+    };
+    expect(sarif.version).toBe('2.1.0');
+    const ruleIds = sarif.runs[0]?.results.map((r) => r.ruleId) ?? [];
+    expect(ruleIds).toContain('N_PLUS_ONE_BURST');
+    expect(ruleIds).toContain('SQLITE_FULL_TABLE_SCAN');
+
+    // Verify CLI `check` extracts and checks PHP files
+    const phpFile = path.join(dir, 'repo.php');
+    await fs.writeFile(
+      phpFile,
+      `<?php DB::select('SELECT id FROM users WHERE email = ?', ['a@b.com']);`,
+      'utf-8',
+    );
+    const phpIo = createTestIo();
+    const phpCode = await runCli(
+      ['check', '--file', phpFile, '--engine', 'mysql', '--format', 'json'],
+      phpIo.io,
+    );
+    expect(phpCode).toBe(0);
+    const phpCheck = JSON.parse(phpIo.getStdout()) as { checkedCount: number; passed: boolean };
+    expect(phpCheck.checkedCount).toBe(1);
+    expect(phpCheck.passed).toBe(true);
+  });
 });

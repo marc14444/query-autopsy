@@ -53,6 +53,7 @@ export * from './domain/services/markdownReportFormatter.js';
 export * from './domain/services/nodeExplainer.js';
 export * from './domain/services/planDiff.js';
 export * from './domain/services/planParser.js';
+export * from './domain/services/queryTraceAnalyzer.js';
 export * from './domain/services/sqlBlockExtractor.js';
 export * from './domain/services/sqlClassifier.js';
 export * from './domain/services/sqlSecurity.js';

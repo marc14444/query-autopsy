@@ -17,6 +17,7 @@ Unlike generic SQL MCP servers that grant LLMs raw query power (`run_sql`), `@qu
 | `autopsy_explain` | Execution plan inspection (`estimate` default; `analyze` opt-in on non-prod) |
 | `autopsy_simulate_index` | PostgreSQL HypoPG what-if index simulation (0 disk writes) |
 | `autopsy_list_slow_queries` | Aggregated `pg_stat_statements` / `performance_schema` top slow queries (redacted) |
+| `autopsy_analyze_traces` | N+1 burst & slow-query analyzer for universal `.query-autopsy/traces.jsonl` logs (strictly workspace-confined + PII scrubbed) |
 
 ## IDE Setup (`mcp_config.json` / `.cursor/mcp.json` / Claude Code)
 

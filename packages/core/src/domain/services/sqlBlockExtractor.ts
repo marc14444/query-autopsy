@@ -8,7 +8,8 @@ export type SqlBlockSourceKind =
   | 'ts-tagged-template'
   | 'ts-orm-call'
   | 'python-sql'
-  | 'go-sql';
+  | 'go-sql'
+  | 'php-sql';
 
 export interface DetectedSqlBlock {
   readonly sql: string;
@@ -40,6 +41,7 @@ const TS_JS_LANGUAGE_IDS = new Set([
 ]);
 const PYTHON_LANGUAGE_IDS = new Set(['python']);
 const GO_LANGUAGE_IDS = new Set(['go']);
+const PHP_LANGUAGE_IDS = new Set(['php']);
 
 const REGEX_PRECEDING_KEYWORDS = new Set([
   'return',
@@ -97,6 +99,34 @@ const GO_DB_CALL_METHODS = new Set([
   'raw',
   'prepare',
   'preparecontext',
+]);
+
+const PHP_DB_CALL_METHODS = new Set([
+  'select',
+  'selectone',
+  'selectfromwriteconnection',
+  'scalar',
+  'insert',
+  'update',
+  'delete',
+  'statement',
+  'affectingstatement',
+  'unprepared',
+  'raw',
+  'query',
+  'prepare',
+  'exec',
+  'createcommand',
+  'fetchallassociative',
+  'fetchassociative',
+  'fetchone',
+  'executequery',
+  'executestatement',
+  'pg_query',
+  'pg_query_params',
+  'pg_prepare',
+  'mysqli_query',
+  'mysqli_prepare',
 ]);
 
 function computeLineOffsets(text: string): readonly number[] {
@@ -864,6 +894,391 @@ function extractGoSqlBlocks(
   return blocks;
 }
 
+function normalizePhpPlaceholders(sql: string): string {
+  let out = '';
+  let i = 0;
+  let nextIdx = 1;
+  const namedMap = new Map<string, string>();
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+
+    // Preserve SQL string literals verbatim
+    if (ch === "'" || ch === '"') {
+      const start = i;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (sql[i] === ch) {
+          if (sql[i + 1] === ch) {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += sql.slice(start, i);
+      continue;
+    }
+
+    // PDO named placeholder :param_name (avoid matching PostgreSQL ::type casts)
+    if (ch === ':') {
+      const prevChar = i > 0 ? sql[i - 1] : undefined;
+      if (prevChar === ':' || sql[i + 1] === ':') {
+        out += ch;
+        i++;
+        continue;
+      }
+      const namedMatch = /^:([a-zA-Z_][a-zA-Z0-9_]*)/.exec(sql.slice(i));
+      if (namedMatch?.[1]) {
+        const key = namedMatch[1];
+        let placeholder = namedMap.get(key);
+        if (!placeholder) {
+          placeholder = `$${nextIdx++}`;
+          namedMap.set(key, placeholder);
+        }
+        out += placeholder;
+        i += namedMatch[0].length;
+        continue;
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+function unescapePhpDoubleQuotedString(raw: string): {
+  readonly value: string;
+  readonly hasInterpolation: boolean;
+} {
+  let out = '';
+  let hasInterpolation = false;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    const next = raw[i + 1];
+    if (ch === '\\') {
+      if (next === 'n') {
+        out += '\n';
+        i++;
+        continue;
+      }
+      if (next === 'r') {
+        out += '\r';
+        i++;
+        continue;
+      }
+      if (next === 't') {
+        out += '\t';
+        i++;
+        continue;
+      }
+      if (next === '"' || next === '\\' || next === '$') {
+        out += next;
+        i++;
+        continue;
+      }
+    }
+
+    if (
+      (ch === '$' && next !== undefined && (next === '{' || /[a-zA-Z_]/.test(next))) ||
+      (ch === '{' && next === '$')
+    ) {
+      hasInterpolation = true;
+    }
+
+    out += ch;
+  }
+
+  return { value: out, hasInterpolation };
+}
+
+function unescapePhpSingleQuotedString(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    const next = raw[i + 1];
+    if (ch === '\\' && (next === "'" || next === '\\')) {
+      out += next;
+      i++;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function hasPhpVariableInterpolation(raw: string): boolean {
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    const next = raw[i + 1];
+    if (
+      (ch === '$' && next !== undefined && (next === '{' || /[a-zA-Z_]/.test(next))) ||
+      (ch === '{' && next === '$')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function extractPhpSqlBlocks(
+  text: string,
+  lineOffsets: readonly number[],
+): readonly DetectedSqlBlock[] {
+  const blocks: DetectedSqlBlock[] = [];
+  let i = 0;
+  const len = text.length;
+
+  let prevNonTrivia = '';
+  let prevCallIdentifier = '';
+  const callStack: string[] = [];
+  let pendingSqlComment = false;
+
+  const isInsidePhpDbCall = (): boolean => {
+    if (prevNonTrivia !== '(' && prevNonTrivia !== ',') {
+      return false;
+    }
+    const activeCall = callStack[callStack.length - 1] ?? '';
+    return PHP_DB_CALL_METHODS.has(activeCall.toLowerCase());
+  };
+
+  while (i < len) {
+    const ch = text[i]!;
+    const next = text[i + 1];
+
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    // Line comment // ...
+    if (ch === '/' && next === '/') {
+      const commentStart = i + 2;
+      i += 2;
+      while (i < len && text[i] !== '\n') {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      if (commentText === 'sql') {
+        pendingSqlComment = true;
+      }
+      continue;
+    }
+
+    // Shell-style line comment # ... (also skips #[Attribute] lines cleanly)
+    if (ch === '#') {
+      const commentStart = i + 1;
+      i++;
+      while (i < len && text[i] !== '\n') {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      if (commentText === 'sql') {
+        pendingSqlComment = true;
+      }
+      continue;
+    }
+
+    // Block comment /* ... */
+    if (ch === '/' && next === '*') {
+      const commentStart = i + 2;
+      i += 2;
+      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
+        i++;
+      }
+      const commentText = text.slice(commentStart, i).trim().toLowerCase();
+      i = Math.min(len, i + 2);
+      pendingSqlComment = commentText === 'sql';
+      continue;
+    }
+
+    // PHP 7.3+ Heredoc / Nowdoc: <<<SQL ... SQL or <<<'SQL' ... SQL
+    if (ch === '<' && next === '<' && text[i + 2] === '<') {
+      const opener =
+        /^<<<[ \t]*(?:'([a-zA-Z_][a-zA-Z0-9_]*)'|"([a-zA-Z_][a-zA-Z0-9_]*)"|([a-zA-Z_][a-zA-Z0-9_]*))[ \t]*\r?\n/.exec(
+          text.slice(i),
+        );
+      if (opener) {
+        const isNowdoc = Boolean(opener[1]);
+        const tag = opener[1] ?? opener[2] ?? opener[3]!;
+        const bodyStart = i + opener[0].length;
+        let lineCursor = bodyStart;
+        let bodyEnd = len;
+        let docEnd = len;
+
+        while (lineCursor < len) {
+          const lineEndIdx = text.indexOf('\n', lineCursor);
+          const nextLineStart = lineEndIdx === -1 ? len : lineEndIdx + 1;
+          const lineText = text.slice(
+            lineCursor,
+            lineEndIdx === -1 ? len : lineEndIdx,
+          );
+          const trimmedIndent = lineText.replace(/^[ \t]+/, '');
+          if (trimmedIndent.startsWith(tag)) {
+            const afterTag = trimmedIndent[tag.length];
+            if (
+              afterTag === undefined ||
+              afterTag === '\r' ||
+              afterTag === ';' ||
+              afterTag === ',' ||
+              afterTag === ')' ||
+              afterTag === ']' ||
+              afterTag === ' ' ||
+              afterTag === '\t'
+            ) {
+              bodyEnd = lineCursor;
+              const indentLen = lineText.length - trimmedIndent.length;
+              docEnd = lineCursor + indentLen + tag.length;
+              break;
+            }
+          }
+          lineCursor = nextLineStart;
+        }
+
+        const rawInner = text.slice(bodyStart, bodyEnd);
+        if (isNowdoc || !hasPhpVariableInterpolation(rawInner)) {
+          const normalized = normalizePhpPlaceholders(rawInner);
+          const hasExplicitContext =
+            pendingSqlComment ||
+            isInsidePhpDbCall() ||
+            tag.toUpperCase() === 'SQL';
+          pushBlockIfValid(
+            blocks,
+            lineOffsets,
+            normalized,
+            i,
+            docEnd,
+            'php-sql',
+            hasExplicitContext,
+          );
+        }
+
+        i = docEnd;
+        prevNonTrivia = 'string';
+        pendingSqlComment = false;
+        continue;
+      }
+    }
+
+    // Single-quoted PHP string '...'
+    if (ch === "'") {
+      const startOffset = i;
+      const endOffset = skipJsString(text, i, "'");
+      const rawInner = text.slice(
+        startOffset + 1,
+        Math.max(startOffset + 1, endOffset - 1),
+      );
+      const unescaped = unescapePhpSingleQuotedString(rawInner);
+      const normalized = normalizePhpPlaceholders(unescaped);
+      const hasExplicitContext = pendingSqlComment || isInsidePhpDbCall();
+
+      pushBlockIfValid(
+        blocks,
+        lineOffsets,
+        normalized,
+        startOffset,
+        endOffset,
+        'php-sql',
+        hasExplicitContext,
+      );
+
+      i = endOffset;
+      prevNonTrivia = 'string';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    // Double-quoted PHP string "..."
+    if (ch === '"') {
+      const startOffset = i;
+      const endOffset = skipJsString(text, i, '"');
+      const rawInner = text.slice(
+        startOffset + 1,
+        Math.max(startOffset + 1, endOffset - 1),
+      );
+      const { value, hasInterpolation } = unescapePhpDoubleQuotedString(rawInner);
+      if (!hasInterpolation) {
+        const normalized = normalizePhpPlaceholders(value);
+        const hasExplicitContext = pendingSqlComment || isInsidePhpDbCall();
+        pushBlockIfValid(
+          blocks,
+          lineOffsets,
+          normalized,
+          startOffset,
+          endOffset,
+          'php-sql',
+          hasExplicitContext,
+        );
+      }
+
+      i = endOffset;
+      prevNonTrivia = 'string';
+      pendingSqlComment = false;
+      continue;
+    }
+
+    if (ch === '(') {
+      callStack.push(prevCallIdentifier);
+      prevCallIdentifier = '';
+      prevNonTrivia = '(';
+      i++;
+      continue;
+    }
+
+    if (ch === ')') {
+      callStack.pop();
+      prevCallIdentifier = '';
+      prevNonTrivia = ')';
+      pendingSqlComment = false;
+      i++;
+      continue;
+    }
+
+    // Skip `->` and `::` method/static resolution operators cleanly
+    if ((ch === '-' && next === '>') || (ch === ':' && next === ':')) {
+      prevNonTrivia = ch + next;
+      pendingSqlComment = false;
+      i += 2;
+      continue;
+    }
+
+    if (/[a-zA-Z_\\]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < len && /[a-zA-Z0-9_\\]/.test(text[i]!)) {
+        i++;
+      }
+      const word = text.slice(start, i);
+      const segments = word.split('\\').filter(Boolean);
+      prevCallIdentifier = segments[segments.length - 1] ?? '';
+      prevNonTrivia = word;
+      pendingSqlComment = false;
+      continue;
+    }
+
+    prevNonTrivia = ch;
+    if (ch !== ',') {
+      pendingSqlComment = false;
+    }
+    i++;
+  }
+
+  return blocks;
+}
+
 function isSqlSource(languageId: string, fileName?: string): boolean {
   if (SQL_LANGUAGE_IDS.has(languageId)) {
     return true;
@@ -892,10 +1307,18 @@ function isGoSource(languageId: string, fileName?: string): boolean {
   return Boolean(fileName && /\.go$/i.test(fileName));
 }
 
+function isPhpSource(languageId: string, fileName?: string): boolean {
+  if (PHP_LANGUAGE_IDS.has(languageId)) {
+    return true;
+  }
+  return Boolean(fileName && /\.php$/i.test(fileName));
+}
+
 /**
  * Pure domain extractor detecting inspectable SQL blocks across `.sql` files,
  * TypeScript/JavaScript ORMs (Prisma, Drizzle, TypeORM, Knex, pg/mysql2),
- * Python (`psycopg`, `sqlalchemy`, `sqlite3`, Django), and Go (`database/sql`, `pgx`, `sqlx`, `GORM`).
+ * Python (`psycopg`, `sqlalchemy`, `sqlite3`, Django), Go (`database/sql`, `pgx`, `sqlx`, `GORM`),
+ * and PHP (`Laravel DB::select/statement`, `PDO::prepare`, `Doctrine DBAL`).
  */
 export function extractSqlBlocks(
   text: string,
@@ -939,6 +1362,10 @@ export function extractSqlBlocks(
 
   if (isGoSource(languageId, fileName)) {
     return extractGoSqlBlocks(text, lineOffsets);
+  }
+
+  if (isPhpSource(languageId, fileName)) {
+    return extractPhpSqlBlocks(text, lineOffsets);
   }
 
   return [];

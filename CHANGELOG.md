@@ -2,6 +2,14 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.4.0] - 2026-11-20
+
+### Added (Universal JSONL Trace Contract, N+1 Burst Detector & PHP/Laravel Support)
+- **Universal `.query-autopsy/traces.jsonl` Trace Contract (`@query-autopsy/core`)**: Added pure domain schema (`QueryTraceEntry`), bounded JSONL stream parser (`parseQueryTraceStream`), structural SQL fingerprinter (`computeTraceQueryFingerprint`, normalizing literals, `$N`/`?`/`:param` bindings, numeric constants, `IN (...)` lists, and multi-row `VALUES`), and request-scoped burst analyzer (`analyzeQueryTraces`, emitting `N_PLUS_ONE_BURST` and `SLOW_TRACE_QUERY` diagnostics).
+- **CLI Trace Gate (`query-autopsy trace`)**: Added `query-autopsy trace [--file <path> | --stdin] [--threshold-n1 <n>] [--slow-ms <ms>] [--explain-top <N>]` with `markdown`, `json`, and **SARIF 2.1.0** output plus `--redact` and `--fail-on` CI gating (defaulting to `.query-autopsy/traces.jsonl`).
+- **Workspace-Confined MCP Trace Analyzer (`autopsy_analyze_traces`)**: Added strictly read-only 5th tool to `@query-autopsy/mcp` with strict workspace realpath + `.jsonl`/`.ndjson` extension confinement (anti-path-traversal / anti-symlink escape), raw binding suppression, PII literal scrubbing, and optional read-only `EXPLAIN estimate` on top offenders.
+- **PHP / Laravel Source Extraction**: Added `php-sql` extractor (`extractPhpSqlBlocks`) in `sqlBlockExtractor.ts` supporting Laravel `DB::select` / `DB::statement` / `DB::raw`, PDO `->prepare()` / `->query()`, heredocs (`<<<SQL`), nowdocs (`<<<'SQL'`), and PDO `:named` parameter normalization; wired `onLanguage:php` in VS Code activation/CodeLens and `.php` scanning in `@query-autopsy/cli`.
+
 ## [1.3.1] - 2026-11-20
 
 ### Fixed & Improved
