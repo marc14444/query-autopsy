@@ -2,6 +2,16 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.5.0] - 2026-11-20
+
+### Added (`marc14444/laravel-query-autopsy` — Lightweight Dev-Only Laravel Bridge)
+- **Thin Composer Package (`packages/laravel/composer.json` — PHP `^8.1`, Laravel `10/11/12`)**:
+  - Hooks `DB::listen()` automatically via `QueryAutopsyServiceProvider` (`afterResolving('db')`) ONLY when `APP_ENV` is in `allowed_environments` (`local`, `testing`), guaranteeing zero DB listeners or overhead in `APP_ENV=production`.
+  - Emits sanitized JSONL records matching `.query-autopsy/traces.jsonl` via `JsonlTraceWriter`, with `BindingSanitizer` redacting inline `'...'` SQL string literals (`'[REDACTED]'`) and stripping bindings (`[]`) by default, `CallerLocator` mapping backtraces to workspace source lines, automatic `.query-autopsy/.gitignore` creation, anti-symlink write protection, bounded per-request memory buffer, and automatic size rotation (`traces.jsonl.1`).
+  - Isolates queue jobs & Laravel Octane requests (`JobProcessed` / `RequestTerminated`) cleanly into independent `requestId` windows so N+1 bursts stay scoped per request/job.
+- **Artisan Command (`php artisan query:autopsy`)**: `QueryAutopsyCommand` wraps `@query-autopsy/cli` (`trace`, `ci`, `check`) using raw argument-vector `proc_open(array $argv)` (zero shell injection) and passes `--uri` strictly via `QUERY_AUTOPSY_URI` subprocess environment variable (zero credential leaks in process listings).
+- **CI & Cross-Runtime Tests**: Added PHP syntax linting (`php -l`), `composer validate --strict`, native PHP test suite (`packages/laravel/tests/run.php`), and end-to-end Vitest integration test (`tests/integrations/laravelBridge.test.mts`) verifying real PHP JSONL output consumed by `@query-autopsy/core`, `@query-autopsy/cli`, and `@query-autopsy/mcp`.
+
 ## [1.4.0] - 2026-11-20
 
 ### Added (Universal JSONL Trace Contract, N+1 Burst Detector & PHP/Laravel Support)

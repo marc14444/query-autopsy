@@ -44,6 +44,17 @@ jobs:
           fi
       - run: npm run package
 
+  php-laravel-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint PHP sources & validate Composer manifest
+        run: |
+          find packages/laravel -name '*.php' -print0 | xargs -0 -n1 php -l
+          composer validate --strict --working-dir=packages/laravel
+      - name: Run native PHP Laravel bridge unit tests
+        run: php packages/laravel/tests/run.php
+
   e2e:
     runs-on: ubuntu-latest
     services:

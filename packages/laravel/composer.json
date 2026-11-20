@@ -1,0 +1,49 @@
+{
+  "name": "marc14444/laravel-query-autopsy",
+  "description": "Lightweight dev-only Laravel bridge capturing sanitized Eloquent and DB query traces into .query-autopsy/traces.jsonl for QueryAutopsy N+1 and EXPLAIN diagnostics.",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "laravel",
+    "eloquent",
+    "sql",
+    "explain",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "n-plus-one",
+    "performance",
+    "query-autopsy"
+  ],
+  "homepage": "https://github.com/marc14444/query-autopsy#readme",
+  "support": {
+    "issues": "https://github.com/marc14444/query-autopsy/issues",
+    "source": "https://github.com/marc14444/query-autopsy"
+  },
+  "require": {
+    "php": "^8.1",
+    "ext-json": "*",
+    "illuminate/console": "^10.0|^11.0|^12.0",
+    "illuminate/database": "^10.0|^11.0|^12.0",
+    "illuminate/support": "^10.0|^11.0|^12.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "QueryAutopsy\\Laravel\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "QueryAutopsy\\Laravel\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "QueryAutopsy\\Laravel\\QueryAutopsyServiceProvider"
+      ]
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
