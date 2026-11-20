@@ -42,6 +42,7 @@ export interface PlanNode {
   readonly exclusiveTimePercent?: number | undefined;
   readonly filter?: string | undefined;
   readonly indexCond?: string | undefined;
+  readonly recheckCond?: string | undefined;
   readonly hashCond?: string | undefined;
   readonly rowsRemovedByFilter?: number | undefined;
   readonly hashBatches?: number | undefined;

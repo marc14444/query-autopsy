@@ -227,6 +227,26 @@ function findPrimaryScanDescendant(node: PlanNode): PlanNode | undefined {
   return undefined;
 }
 
+function collectSubtreeIndexConditions(node: PlanNode): readonly string[] {
+  const conds: string[] = [];
+  if (node.indexCond) {
+    conds.push(node.indexCond);
+  }
+  if (node.recheckCond) {
+    conds.push(node.recheckCond);
+  }
+  for (const child of node.children) {
+    if (
+      child.nodeType === 'Bitmap Index Scan' ||
+      child.nodeType === 'BitmapAnd' ||
+      child.nodeType === 'BitmapOr'
+    ) {
+      conds.push(...collectSubtreeIndexConditions(child));
+    }
+  }
+  return conds;
+}
+
 function parseSortKeyColumns(
   sortKeys: readonly string[],
   alias?: string,
@@ -340,16 +360,20 @@ const esrCompositeIndexRule: DiagnosticRule = (node, plan, config) => {
   }
 
   const filterPreds = classifyPredicateColumns(scanNode.filter, scanNode.alias);
-  const indexCondPreds = classifyPredicateColumns(
-    scanNode.indexCond,
-    scanNode.alias,
-  );
+  const indexCondStrings = collectSubtreeIndexConditions(scanNode);
+  const indexEqualityCols: string[] = [];
+  const indexRangeCols: string[] = [];
+  for (const cond of indexCondStrings) {
+    const preds = classifyPredicateColumns(cond, scanNode.alias);
+    indexEqualityCols.push(...preds.equalityCols);
+    indexRangeCols.push(...preds.rangeCols);
+  }
 
   const eqCols = Array.from(
-    new Set([...indexCondPreds.equalityCols, ...filterPreds.equalityCols]),
+    new Set([...indexEqualityCols, ...filterPreds.equalityCols]),
   );
   const rangeCols = Array.from(
-    new Set([...indexCondPreds.rangeCols, ...filterPreds.rangeCols]),
+    new Set([...indexRangeCols, ...filterPreds.rangeCols]),
   ).filter((col) => !eqCols.includes(col));
 
   const sortItems = parseSortKeyColumns(node.sort.sortKey, scanNode.alias);
@@ -396,7 +420,11 @@ const esrCompositeIndexRule: DiagnosticRule = (node, plan, config) => {
 
   return {
     ruleId: 'ESR_COMPOSITE_INDEX_OPPORTUNITY',
-    severity: scanNode.nodeType === 'Seq Scan' ? 'warning' : 'info',
+    severity:
+      scanNode.nodeType === 'Seq Scan' ||
+      sortRows >= config.seqScanRowThreshold
+        ? 'warning'
+        : 'info',
     nodeId: node.id,
     nodeType: node.nodeType,
     relationName: scanNode.relationName,
