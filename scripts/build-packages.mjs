@@ -40,3 +40,9 @@ runTsc('packages/cli/tsconfig.json');
 // 4. @query-autopsy/mcp (Zero-Trust stdio MCP server)
 mkdirSync(dirname('packages/mcp/dist/index.js'), { recursive: true });
 runTsc('packages/mcp/tsconfig.json');
+
+// 5. @query-autopsy/trace (dual CJS + ESM dev trace bridge)
+runTsc('packages/trace/tsconfig.json');
+writeFormatMarker('packages/trace/dist/cjs', 'commonjs');
+runTsc('packages/trace/tsconfig.esm.json');
+writeFormatMarker('packages/trace/dist/esm', 'module');

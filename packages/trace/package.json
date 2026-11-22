@@ -1,0 +1,50 @@
+{
+  "name": "@query-autopsy/trace",
+  "version": "1.8.0",
+  "description": "Lightweight dev-only Node.js/TypeScript trace bridge for Prisma, Drizzle, and TypeORM emitting PII-redacted .query-autopsy/traces.jsonl logs.",
+  "license": "MIT",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marc14444/query-autopsy.git",
+    "directory": "packages/trace"
+  },
+  "keywords": [
+    "prisma",
+    "drizzle",
+    "typeorm",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "n-plus-one",
+    "query-autopsy"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json"
+  },
+  "dependencies": {
+    "@query-autopsy/core": "^1.5.0"
+  }
+}

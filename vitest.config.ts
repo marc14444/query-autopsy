@@ -11,6 +11,7 @@ export default defineConfig({
       '@query-autopsy/executors': fromRoot('./packages/executors/src/index.ts'),
       '@query-autopsy/cli': fromRoot('./packages/cli/src/index.ts'),
       '@query-autopsy/mcp': fromRoot('./packages/mcp/src/index.ts'),
+      '@query-autopsy/trace': fromRoot('./packages/trace/src/index.ts'),
     },
   },
   test: {
@@ -24,6 +25,7 @@ export default defineConfig({
         'packages/executors/src/**/*.ts',
         'packages/cli/src/**/*.ts',
         'packages/mcp/src/**/*.ts',
+        'packages/trace/src/**/*.ts',
       ],
     },
   },

@@ -55,6 +55,18 @@ jobs:
       - name: Run native PHP Laravel bridge unit tests
         run: php packages/laravel/tests/run.php
 
+  python-trace-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Byte-compile & run Python trace bridge unit tests
+        run: |
+          python -m py_compile packages/python/src/query_autopsy_trace/*.py packages/python/tests/test_trace_bridge.py
+          python -m unittest discover -s packages/python/tests -v
+
   e2e:
     runs-on: ubuntu-latest
     services:
