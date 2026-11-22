@@ -2,6 +2,12 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.7.0] - 2026-11-22
+
+### Added (Safe AI MCP Setup Wizard inside VS Code)
+- **Zero-Trust MCP Configuration Wizard (`queryAutopsy.configureMcp`)**: Interactive 3-step setup generating or cleanly merging `@query-autopsy/mcp` configs across **VS Code / GitHub Copilot** (`.vscode/mcp.json`), **Antigravity** (`~/.gemini/antigravity/mcp_config.json`), **Cursor** (`.cursor/mcp.json`), **Claude Code** (`.mcp.json`), **Windsurf** (`~/.codeium/windsurf/mcp_config.json`), or Clipboard/Preview JSON.
+- **Anti-Secret-Leakage & Security Guardrails (`mcpConfigWriter.ts`)**: Uses masked `${input:query_autopsy_uri}` session prompts in VS Code or `${env:QUERY_AUTOPSY_URI}` placeholders, strictly blocks writing plaintext passwords (`connectionUriHasPlaintextPassword`) into workspace files, disables `--allow-analyze` on `production` profiles, enforces strict PII redaction by default, preserves existing MCP servers on JSON merge, and validates workspace symlinks before writing.
+
 ## [1.6.0] - 2026-11-20
 
 ### Added (VS Code Runtime Trace & N+1 Explorer)
