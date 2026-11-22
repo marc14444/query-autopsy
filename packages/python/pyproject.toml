@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-autopsy-trace"
+version = "1.8.0"
+description = "Lightweight dev-only QueryAutopsy trace bridge for Python (Django and SQLAlchemy)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "QueryAutopsy Contributors" }]
+keywords = [
+  "query-autopsy",
+  "postgresql",
+  "mysql",
+  "sqlite",
+  "django",
+  "sqlalchemy",
+  "n-plus-one",
+  "explain",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: Django",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
+  "Topic :: Software Development :: Debuggers",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/marc14444/query-autopsy"
+Repository = "https://github.com/marc14444/query-autopsy"
+
+[tool.setuptools.packages.find]
+where = ["src"]

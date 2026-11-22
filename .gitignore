@@ -7,3 +7,7 @@ coverage/
 .env
 .DS_Store
 .query-autopsy/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

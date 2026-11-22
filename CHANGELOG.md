@@ -2,6 +2,13 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.8.0] - 2026-11-22
+
+### Added (Python & Node/TS Dev-Only Trace Bridges)
+- **`@query-autopsy/trace` (`packages/trace/`, Dual CJS + ESM)**: Thin Node.js/TypeScript runtime bridge emitting sanitized `.query-autopsy/traces.jsonl` records with `AsyncLocalStorage` request scoping (`createExpressTraceMiddleware`, `runWithRequest`), ready-to-wire ORM adapters for **Prisma** (`attachPrismaTracing`), **Drizzle** (`createDrizzleLogger`), and **TypeORM** (`createTypeOrmLogger`), production guardrails (`NODE_ENV`/`APP_ENV=production` disabled by default), PII literal/binding scrubbing (`redactSqlLiterals`), caller location resolution, `.gitignore` initialization, anti-symlink checks, and `traces.jsonl.1` size rotation.
+- **`query-autopsy-trace` (`packages/python/`, Zero-Dependency Python >=3.9 Stdlib)**: Thin Python bridge supporting **Django** (`QueryAutopsyDjangoMiddleware` via `connection.execute_wrapper`) and **SQLAlchemy** (`attach_sqlalchemy_tracing` via `before_cursor_execute`/`after_cursor_execute`), `contextvars` + `threading.Lock` request isolation, strict production lock (`APP_ENV`/`DJANGO_ENV`/`FLASK_ENV`/`ENV`/`ENVIRONMENT=production` disabled by default), SQL string scrubbing, binding redaction, anti-symlink protection, `.gitignore` creation, and size rotation.
+- **CI & Cross-Runtime Verification**: Added `python-trace-bridge` job to `.github/workflows/ci.yml`, `@query-autopsy/trace` dual build/publish wiring in `scripts/build-packages.mjs` and `.github/workflows/npm-publish.yml`, plus Vitest integration coverage (`tests/integrations/nodeTraceBridge.test.mts`, `tests/integrations/pythonTraceBridge.test.ts`).
+
 ## [1.7.0] - 2026-11-22
 
 ### Added (Safe AI MCP Setup Wizard inside VS Code)

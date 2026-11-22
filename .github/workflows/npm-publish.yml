@@ -1,4 +1,4 @@
-name: Publish npm Packages (@query-autopsy/core, executors, cli, mcp)
+name: Publish npm Packages (@query-autopsy/core, executors, cli, mcp, trace)
 
 on:
   workflow_call:
@@ -39,7 +39,7 @@ jobs:
             exit 0
           fi
 
-          for pkg_dir in packages/core packages/executors packages/cli packages/mcp; do
+          for pkg_dir in packages/core packages/executors packages/cli packages/mcp packages/trace; do
             PKG_NAME=$(node -p "require('./${pkg_dir}/package.json').name")
             PKG_VERSION=$(node -p "require('./${pkg_dir}/package.json').version")
 
