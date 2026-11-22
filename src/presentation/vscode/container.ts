@@ -41,6 +41,10 @@ import {
   runConfigureConnectionCommand,
 } from './commands/configureConnectionCommand.js';
 import {
+  CONFIGURE_MCP_COMMAND,
+  runConfigureMcpCommand,
+} from './commands/configureMcpCommand.js';
+import {
   executeInspectionWithUi,
   type InspectionTarget,
   promptForParameters,
@@ -599,6 +603,14 @@ export function createExtensionContainer(
         await traceExplorerTreeProvider.handleInspect(node, 'analyze');
       },
     ),
+    vscode.commands.registerCommand(CONFIGURE_MCP_COMMAND, async () => {
+      if (
+        !(await ensureWorkspaceTrusted('Configure Safe AI MCP Server', logger))
+      ) {
+        return;
+      }
+      await runConfigureMcpCommand(connectionConfig, logger);
+    }),
   );
 
   void traceExplorerTreeProvider.refresh();
