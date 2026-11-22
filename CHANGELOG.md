@@ -2,6 +2,11 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.8.1] - 2026-11-22
+
+### Documentation
+- **Developer Onboarding & Marketplace README Rewrite**: Reorganized `README.md` with an end-to-end 5-minute onboarding guide covering the IDE CodeLens/HypoPG workflow, copy-paste trace bridge setups (`@query-autopsy/trace`, `query-autopsy-trace`, `marc14444/laravel-query-autopsy`), Zero-Trust AI MCP setup & sample prompts (`@query-autopsy/mcp`), CLI/CI SARIF gating (`@query-autopsy/cli`), and security guarantees.
+
 ## [1.8.0] - 2026-11-22
 
 ### Added (Python & Node/TS Dev-Only Trace Bridges)
