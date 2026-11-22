@@ -92,7 +92,8 @@ jobs:
           if [ -n "${VSCE_PAT:-}" ]; then
             npx --no-install vsce publish --packagePath *.vsix --no-dependencies --skip-duplicate
           else
-            echo "VSCE_PAT secret is not configured; skipping Visual Studio Marketplace publish."
+            unset VSCE_PAT
+            npx --no-install vsce publish --oidc --packagePath *.vsix --no-dependencies --skip-duplicate
           fi
 
       - name: Publish to Open VSX Registry (Antigravity, Cursor, Windsurf, VSCodium)
