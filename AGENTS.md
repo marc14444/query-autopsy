@@ -47,7 +47,7 @@ Strict inward dependency rule — **NO EXCEPTIONS**:
 
 Read the relevant specification before modifying or extending any subsystem:
 - **PRD & Milestones**: `docs/prd/PRD-001-query-autopsy-mvp.md`
-- **Master Roadmaps**: `docs/roadmap/ROADMAP-V0.2-TO-V1.0.md`, `docs/roadmap/ROADMAP-V1.1-TO-V2.0.md`
+- **Master Roadmaps**: `docs/roadmap/ROADMAP-V0.2-TO-V1.0.md`, `docs/roadmap/ROADMAP-V1.1-TO-V2.0.md`, `docs/roadmap/ROADMAP-DATA-ANALYTICS-V1.8.2.md`
 - **Hexagonal Blueprint**: `docs/architecture/HEXAGONAL-ARCHITECTURE.md`
 - **ADRs**: `docs/adr/README.md` (`0001` through `0006`)
 - **Technical Specs**:
