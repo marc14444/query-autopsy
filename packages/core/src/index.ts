@@ -34,6 +34,9 @@ export type {
 } from './domain/ports/outbound/slowQueryPort.js';
 
 export * from './domain/engines/engineRegistry.js';
+export { analyzeDuckDbPlan } from './domain/engines/duckdb/duckdbDiagnostics.js';
+export { duckdbEngineAdapter } from './domain/engines/duckdb/duckdbEngineAdapter.js';
+export { parseDuckDbPlan } from './domain/engines/duckdb/duckdbPlanParser.js';
 export { analyzeMySqlPlan } from './domain/engines/mysql/mysqlDiagnostics.js';
 export { mysqlEngineAdapter } from './domain/engines/mysql/mysqlEngineAdapter.js';
 export { parseMySqlPlan } from './domain/engines/mysql/mysqlPlanParser.js';

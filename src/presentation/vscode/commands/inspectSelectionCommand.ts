@@ -21,6 +21,7 @@ const SQL_LANGUAGE_IDS = new Set([
   'pgsql',
   'mysql',
   'sqlite',
+  'duckdb',
   'mssql',
 ]);
 
@@ -35,6 +36,9 @@ function resolveDocumentEngineHint(
   }
   if (lowerLang === 'sqlite' || lowerFile.endsWith('.sqlite.sql')) {
     return 'sqlite';
+  }
+  if (lowerLang === 'duckdb' || lowerFile.endsWith('.duckdb.sql')) {
+    return 'duckdb';
   }
   return 'postgresql';
 }

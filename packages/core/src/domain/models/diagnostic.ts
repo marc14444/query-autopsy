@@ -24,7 +24,10 @@ export type DiagnosticRuleId =
   | 'MYSQL_USING_FILESORT'
   | 'MYSQL_USING_TEMPORARY'
   | 'SQLITE_FULL_TABLE_SCAN'
-  | 'SQLITE_TEMP_BTREE_SORT';
+  | 'SQLITE_TEMP_BTREE_SORT'
+  | 'PARQUET_PROJECTION_MISS'
+  | 'PARQUET_PREDICATE_PUSHDOWN_MISS'
+  | 'DUCKDB_OUT_OF_CORE_SPILL';
 
 export interface IndexSuggestion {
   readonly table: string;

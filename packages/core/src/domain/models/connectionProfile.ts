@@ -30,31 +30,40 @@ export function resolveProfileEngine(
   return profile?.engine ?? 'postgresql';
 }
 
-function sanitizeSqliteDisplayTarget(connectionString: string): string {
+function sanitizeLocalFileDisplayTarget(
+  connectionString: string,
+  fallbackLabel: 'sqlite' | 'duckdb',
+): string {
   const trimmed = connectionString.trim();
-  if (trimmed.toLowerCase() === ':memory:') {
-    return ':memory:';
+  const lower = trimmed.toLowerCase();
+  if (lower === ':memory:' || lower === ':memory:duckdb') {
+    return trimmed;
   }
 
   let normalizedPath = trimmed;
-  if (/^sqlite:\/\//i.test(normalizedPath)) {
-    normalizedPath = normalizedPath.slice('sqlite://'.length);
-  } else if (/^sqlite:/i.test(normalizedPath)) {
-    normalizedPath = normalizedPath.slice('sqlite:'.length);
-  } else if (/^file:/i.test(normalizedPath)) {
-    normalizedPath = normalizedPath.slice('file:'.length);
+  for (const prefix of [
+    /^sqlite:\/\//i,
+    /^sqlite:/i,
+    /^duckdb:\/\//i,
+    /^duckdb:/i,
+    /^file:/i,
+  ]) {
+    if (prefix.test(normalizedPath)) {
+      normalizedPath = normalizedPath.replace(prefix, '');
+      break;
+    }
   }
 
   const withoutQuery = normalizedPath.split('?')[0] ?? normalizedPath;
   const parts = withoutQuery.split(/[\\/]+/).filter(Boolean);
   if (parts.length === 0) {
-    return 'sqlite';
+    return fallbackLabel;
   }
-  return parts[parts.length - 1] ?? 'sqlite';
+  return parts[parts.length - 1] ?? fallbackLabel;
 }
 
 /**
- * Extracts a safe display label from any supported connection URI or SQLite path without leaking credentials.
+ * Extracts a safe display label from any supported connection URI or local SQLite/DuckDB path without leaking credentials.
  */
 export function sanitizeConnectionDisplayTarget(
   connectionString: string,
@@ -62,8 +71,8 @@ export function sanitizeConnectionDisplayTarget(
 ): string {
   const engine =
     explicitEngine ?? detectDatabaseEngineFromUri(connectionString);
-  if (engine === 'sqlite') {
-    return sanitizeSqliteDisplayTarget(connectionString);
+  if (engine === 'sqlite' || engine === 'duckdb') {
+    return sanitizeLocalFileDisplayTarget(connectionString, engine);
   }
 
   try {
@@ -96,7 +105,7 @@ function normalizeParsedConnectionUrl(
 ): URL | undefined {
   const engine =
     explicitEngine ?? detectDatabaseEngineFromUri(connectionString);
-  if (engine === 'sqlite') {
+  if (engine === 'sqlite' || engine === 'duckdb') {
     return undefined;
   }
 

@@ -138,7 +138,9 @@ export function createExtensionContainer(
     context.secrets,
     context.globalState,
   );
-  const queryExecutor = new MultiEngineQueryExecutor(logger);
+  const queryExecutor = new MultiEngineQueryExecutor(logger, undefined, {
+    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  });
   const statusBar = new ConnectionStatusBar(connectionConfig);
 
   let activeProfileReadOnly = false;

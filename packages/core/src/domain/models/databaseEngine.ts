@@ -1,7 +1,7 @@
-export type DatabaseEngine = 'postgresql' | 'mysql' | 'sqlite';
+export type DatabaseEngine = 'postgresql' | 'mysql' | 'sqlite' | 'duckdb';
 
 /**
- * Infers the database engine from a connection URI or local SQLite file path.
+ * Infers the database engine from a connection URI or local SQLite/DuckDB file path.
  */
 export function detectDatabaseEngineFromUri(
   connectionString: string,
@@ -11,6 +11,15 @@ export function detectDatabaseEngineFromUri(
 
   if (lower.startsWith('mysql://') || lower.startsWith('mysql2://')) {
     return 'mysql';
+  }
+
+  if (
+    lower === ':memory:duckdb' ||
+    lower.startsWith('duckdb://') ||
+    lower.startsWith('duckdb:') ||
+    /\.(?:duckdb|ddb)(?:$|\?)/i.test(trimmed)
+  ) {
+    return 'duckdb';
   }
 
   if (
@@ -34,6 +43,8 @@ export function formatEngineLabel(engine: DatabaseEngine): string {
       return 'MySQL';
     case 'sqlite':
       return 'SQLite';
+    case 'duckdb':
+      return 'DuckDB';
   }
 }
 
@@ -45,5 +56,7 @@ export function formatEngineShortCode(engine: DatabaseEngine): string {
       return 'MySQL';
     case 'sqlite':
       return 'SQLite';
+    case 'duckdb':
+      return 'DuckDB';
   }
 }

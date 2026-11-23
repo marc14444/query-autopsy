@@ -25,6 +25,8 @@ const DB_URI_KEYS = new Set([
   'MYSQL_URI',
   'SQLITE_URL',
   'SQLITE_PATH',
+  'DUCKDB_URL',
+  'DUCKDB_PATH',
   'DB_URL',
   'DB_CONNECTION',
 ]);
@@ -54,6 +56,13 @@ function isSupportedUri(value: string): boolean {
     } catch {
       return false;
     }
+  }
+  if (
+    lower.startsWith('duckdb://') ||
+    lower.startsWith('duckdb:') ||
+    (lower.startsWith('file:') && /\.(?:duckdb|ddb)(?:$|\?)/i.test(value))
+  ) {
+    return value.length > 6;
   }
   if (
     lower.startsWith('sqlite://') ||
@@ -118,6 +127,7 @@ export function extractDatabaseUrisFromEnvContent(
       !upperKey.includes('POSTGRES') &&
       !upperKey.includes('MYSQL') &&
       !upperKey.includes('SQLITE') &&
+      !upperKey.includes('DUCKDB') &&
       !upperKey.includes('DATABASE')
     ) {
       continue;

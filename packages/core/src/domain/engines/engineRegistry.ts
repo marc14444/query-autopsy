@@ -3,6 +3,7 @@ import type { DiagnosticFinding } from '../models/diagnostic.js';
 import type { ExecutionPlan } from '../models/executionPlan.js';
 import type { ClassifiedSql, ExplainMode } from '../models/queryRequest.js';
 import type { DiagnosticConfig } from '../services/diagnosticEngine.js';
+import { duckdbEngineAdapter } from './duckdb/duckdbEngineAdapter.js';
 import { mysqlEngineAdapter } from './mysql/mysqlEngineAdapter.js';
 import { postgresEngineAdapter } from './postgres/postgresEngineAdapter.js';
 import { sqliteEngineAdapter } from './sqlite/sqliteEngineAdapter.js';
@@ -29,6 +30,7 @@ const ADAPTERS: Record<DatabaseEngine, DatabaseEngineAdapter> = {
   postgresql: postgresEngineAdapter,
   mysql: mysqlEngineAdapter,
   sqlite: sqliteEngineAdapter,
+  duckdb: duckdbEngineAdapter,
 };
 
 export function getEngineAdapter(

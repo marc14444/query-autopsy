@@ -451,5 +451,35 @@ describe('@query-autopsy/cli', () => {
     );
     expect(badProfileCode).toBe(1);
     expect(badProfileIo.getStderr()).toContain('Invalid --profile');
+
+    const duckdbOkIo = createTestIo();
+    const duckdbOkCode = await runCli(
+      [
+        'check',
+        '--engine',
+        'duckdb',
+        '--sql',
+        "SELECT user_id FROM read_parquet('events.parquet') WHERE user_id = $1",
+        '--format',
+        'json',
+      ],
+      duckdbOkIo.io,
+    );
+    expect(duckdbOkCode).toBe(0);
+
+    const duckdbBadIo = createTestIo();
+    const duckdbBadCode = await runCli(
+      [
+        'check',
+        '--engine',
+        'duckdb',
+        '--sql',
+        'INSTALL httpfs;',
+        '--format',
+        'json',
+      ],
+      duckdbBadIo.io,
+    );
+    expect(duckdbBadCode).toBe(2);
   });
 });

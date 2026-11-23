@@ -1,6 +1,6 @@
 {
   "name": "@query-autopsy/cli",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "Language-agnostic SQL EXPLAIN profiler, CI performance gate (JSON / Markdown / SARIF), and offline SQL safety checker.",
   "license": "MIT",
   "type": "module",
@@ -44,7 +44,7 @@
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "@query-autopsy/core": "1.8.2",
-    "@query-autopsy/executors": "1.8.2"
+    "@query-autopsy/core": "1.8.3",
+    "@query-autopsy/executors": "1.8.3"
   }
 }

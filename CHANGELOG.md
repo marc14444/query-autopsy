@@ -2,6 +2,18 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.8.3] - 2026-11-23
+
+### Added (DuckDB & Local Parquet / CSV Execution Plan Inspector)
+- **DuckDB Engine Adapter (`@query-autopsy/core`)**:
+  - Added `'duckdb'` to `DatabaseEngine`, `detectDatabaseEngineFromUri()` (`duckdb://`, `*.duckdb`, `*.ddb`, `:memory:duckdb`), `sanitizeConnectionDisplayTarget()`, `envDiscovery.ts` (`DUCKDB_URL` / `DUCKDB_PATH`), `queryTraceAnalyzer.ts`, `@query-autopsy/trace`, and `query-autopsy-trace` (Python).
+  - Added `parseDuckDbPlan()` supporting both `EXPLAIN (FORMAT JSON)` / `duckdb -json` envelopes (`physical_plan`) and profiled `EXPLAIN (ANALYZE, FORMAT JSON)` operator trees (`operator_timing`, `operator_cardinality`, `operator_rows_scanned`).
+  - Added columnar/Parquet rules: `PARQUET_PROJECTION_MISS` (unnecessary `SELECT *` / wide projections over Parquet/CSV scans), `PARQUET_PREDICATE_PUSHDOWN_MISS` (post-scan `FILTER` or unpushable casts blocking Parquet row-group skipping), `DUCKDB_OUT_OF_CORE_SPILL`, plus `CARTESIAN_OR_UNBOUNDED_JOIN` on `CROSS_PRODUCT` / `NESTED_LOOP_JOIN`.
+  - Tightened SQL guardrails for DuckDB: blocks extension/file DDL (`INSTALL`, `LOAD`, `EXPORT`, `IMPORT`, `COPY`, `ATTACH`) and dangerous functions (`duckdb_secrets`, `getenv`, `read_text`, `read_blob`, `load_extension`).
+- **Safe Read-Only `DuckDbQueryExecutor` (`@query-autopsy/executors`)**:
+  - Executes `EXPLAIN` via DuckDB CLI in `-readonly` mode without adding heavy native `.node` binaries to the `.vsix`, using `PREPARE ... EXECUTE` binding, workspace symlink & realpath confinement for `.duckdb` and local `.parquet`/`.csv` paths, and strict rejection of remote object/HTTP URLs (`s3://`, `https://`, etc.) by default.
+- **IDE, CLI & MCP Wiring**: Added DuckDB discovery (`**/*.{duckdb,ddb}`), Guided/File Picker support in `configureConnectionCommand`, `--engine duckdb` in `@query-autopsy/cli` and `@query-autopsy/mcp`, and DuckDB pill rendering in Webview reports.
+
 ## [1.8.2] - 2026-11-23
 
 ### Added (OLAP Analytics Diagnostics, Jupyter `.ipynb` & dbt Prep)

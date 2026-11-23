@@ -76,6 +76,16 @@ const MYSQL_DANGEROUS_FUNCTIONS = new Set([
 
 const SQLITE_DANGEROUS_FUNCTIONS = new Set(['load_extension']);
 
+const DUCKDB_DANGEROUS_FUNCTIONS = new Set([
+  'duckdb_secrets',
+  'getenv',
+  'read_text',
+  'read_blob',
+  'load_extension',
+  'install_extension',
+  'set_setting',
+]);
+
 function unquoteIdentifierToken(raw: string): string {
   if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
     return raw.slice(1, -1).replace(/""/g, '"').toLowerCase();
@@ -97,6 +107,8 @@ function dangerousFunctionSetForEngine(
       return MYSQL_DANGEROUS_FUNCTIONS;
     case 'sqlite':
       return SQLITE_DANGEROUS_FUNCTIONS;
+    case 'duckdb':
+      return DUCKDB_DANGEROUS_FUNCTIONS;
     case 'postgresql':
     default:
       return PG_DANGEROUS_FUNCTIONS;

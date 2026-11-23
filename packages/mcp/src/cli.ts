@@ -50,8 +50,11 @@ function normalizeEngine(raw?: string): DatabaseEngine | undefined {
   if (lower === 'sqlite' || lower === 'sqlite3') {
     return 'sqlite';
   }
+  if (lower === 'duckdb' || lower === 'duck') {
+    return 'duckdb';
+  }
   throw new Error(
-    `Unsupported --engine "${raw}". Expected postgresql, mysql, or sqlite.`,
+    `Unsupported --engine "${raw}". Expected postgresql, mysql, sqlite, or duckdb.`,
   );
 }
 
@@ -125,7 +128,7 @@ function getHelpText(): string {
     '',
     'Options:',
     '  --uri <dsn>                     Database URI (fallback: QUERY_AUTOPSY_URI, DATABASE_URL)',
-    '  --engine <pg|mysql|sqlite>      Explicit database dialect override',
+    '  --engine <pg|mysql|sqlite|duckdb> Explicit database dialect override',
     '  --env <local|staging|production> Target environment (remote defaults to production)',
     '  --allow-analyze                 Allow read-only EXPLAIN ANALYZE on non-production targets',
     '  --timeout <ms>                  Max statement_timeout in ms (default: 5000, max: 30000)',
@@ -157,7 +160,7 @@ export async function main(
   }
 
   if (parsed.version) {
-    process.stderr.write('1.8.2\n');
+    process.stderr.write('1.8.3\n');
     return 0;
   }
 
@@ -182,9 +185,15 @@ export async function main(
     },
   };
 
-  const queryExecutor = new MultiEngineQueryExecutor(logger, {
-    wasmPath: resolveDefaultSqlJsWasmPath(),
-  });
+  const queryExecutor = new MultiEngineQueryExecutor(
+    logger,
+    {
+      wasmPath: resolveDefaultSqlJsWasmPath(),
+    },
+    {
+      workspaceRoot: process.cwd(),
+    },
+  );
   const slowQueryReader = new MultiEngineSlowQueryReader(logger);
 
   const firewall = new McpFirewallServer({

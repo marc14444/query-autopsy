@@ -217,6 +217,9 @@ function normalizeTraceEngine(raw: unknown): DatabaseEngine | undefined {
   if (lower === 'sqlite' || lower === 'sqlite3') {
     return 'sqlite';
   }
+  if (lower === 'duckdb' || lower === 'duck') {
+    return 'duckdb';
+  }
   return undefined;
 }
 

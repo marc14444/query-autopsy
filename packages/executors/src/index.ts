@@ -1,5 +1,6 @@
 export * from './database/multiEngineQueryExecutor.js';
 export * from './database/slowQueryReader.js';
+export * from './duckdb/duckdbQueryExecutor.js';
 export * from './mysql/mysqlErrors.js';
 export * from './mysql/mysqlQueryExecutor.js';
 export * from './postgres/pgErrors.js';

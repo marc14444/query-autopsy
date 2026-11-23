@@ -41,6 +41,10 @@ const DDL_KEYWORDS = new Set([
   'RENAME',
   'OPTIMIZE',
   'ANALYZE',
+  'INSTALL',
+  'LOAD',
+  'EXPORT',
+  'IMPORT',
 ]);
 const CLAUSE_FRAGMENT_KEYWORDS = new Set([
   'FROM',
@@ -376,7 +380,7 @@ export function validateSafeCreateIndexSql(
   const pattern =
     engine === 'mysql'
       ? SAFE_MYSQL_CREATE_INDEX_REGEX
-      : engine === 'sqlite'
+      : engine === 'sqlite' || engine === 'duckdb'
         ? SAFE_SQLITE_CREATE_INDEX_REGEX
         : SAFE_PG_CREATE_INDEX_REGEX;
 
