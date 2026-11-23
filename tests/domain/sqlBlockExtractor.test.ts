@@ -1,4 +1,8 @@
-import { extractSqlBlocks } from '@query-autopsy/core';
+import {
+  extractJupyterNotebookSqlBlocks,
+  extractSqlBlocks,
+  normalizeDbtSqlTemplate,
+} from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
 
 describe('extractSqlBlocks', () => {
@@ -175,5 +179,90 @@ describe('extractSqlBlocks', () => {
     );
     expect(blocks[1]?.sql).toContain('customer_email = $1 AND issued_at::date >= $2');
     expect(blocks[2]?.sql).toContain('FROM audit_events WHERE tenant_id = ?');
+  });
+
+  it('extracts SQL from Jupyter (.ipynb) notebooks and Python Data Science libraries (pandas, polars, duckdb)', () => {
+    const pyData = `
+      import duckdb, pandas as pd, polars as pl
+      df1 = pd.read_sql("SELECT user_id, SUM(amount_cents) FROM orders GROUP BY 1", conn)
+      df2 = duckdb.sql("SELECT * FROM read_parquet('events.parquet') WHERE status = 'ok'")
+      df3 = pl.read_database("SELECT id FROM invoices WHERE total > ?", conn)
+    `;
+    const pyBlocks = extractSqlBlocks(pyData, 'python', 'etl/warehouse_load.py');
+    expect(pyBlocks).toHaveLength(3);
+
+    const ipynb = JSON.stringify(
+      {
+        nbformat: 4,
+        nbformat_minor: 5,
+        cells: [
+          {
+            cell_type: 'markdown',
+            source: ['# Daily Revenue Analysis\n'],
+          },
+          {
+            cell_type: 'code',
+            source: [
+              '%%sql\n',
+              'SELECT date_trunc(\'day\', created_at) AS day, COUNT(*)\n',
+              'FROM orders\n',
+              'GROUP BY 1;\n',
+            ],
+          },
+          {
+            cell_type: 'code',
+            source: [
+              '%matplotlib inline\n',
+              'df = pd.read_sql("SELECT id, email FROM users WHERE active = true", engine)\n',
+            ],
+          },
+          {
+            cell_type: 'code',
+            source: ['%sql SELECT id, total FROM orders WHERE user_id = 42\n'],
+          },
+        ],
+      },
+      null,
+      2,
+    );
+
+    const nbBlocks = extractJupyterNotebookSqlBlocks(ipynb);
+    expect(nbBlocks).toHaveLength(3);
+    expect(nbBlocks.every((b) => b.sourceKind === 'notebook-cell')).toBe(true);
+    expect(nbBlocks[0]?.sql).toContain('FROM orders');
+    expect(nbBlocks[1]?.sql).toContain('FROM users WHERE active = true');
+    expect(nbBlocks[2]?.sql).toContain('WHERE user_id = 42');
+    expect(extractJupyterNotebookSqlBlocks('{invalid json')).toEqual([]);
+  });
+
+  it('normalizes dbt Jinja models cleanly while preserving SQL literals and line numbers', () => {
+    const dbtModel = [
+      "{{ config(materialized='incremental') }}",
+      '{# Incremental daily revenue rollup #}',
+      'WITH recent AS (',
+      '  SELECT order_id, user_id, amount_cents',
+      "  FROM {{ ref('stg_orders') }}",
+      '  {% if is_incremental() %}',
+      '  WHERE created_at >= (SELECT max(created_at) FROM {{ this }})',
+      "  AND env_label = '{{ var(\"env\") }}'",
+      '  {% endif %}',
+      ')',
+      'SELECT r.user_id, SUM(r.amount_cents) AS total_cents',
+      'FROM recent r',
+      "JOIN {{ source('raw', 'users') }} u ON u.id = r.user_id",
+      'GROUP BY r.user_id;',
+    ].join('\n');
+
+    const normalized = normalizeDbtSqlTemplate(dbtModel);
+    expect(normalized.split('\n')).toHaveLength(dbtModel.split('\n').length);
+    expect(normalized).toContain('FROM stg_orders');
+    expect(normalized).toContain('FROM dbt_this_model');
+    expect(normalized).toContain('JOIN raw.users');
+    expect(normalized).toContain("'{{ var(\"env\") }}'");
+
+    const blocks = extractSqlBlocks(dbtModel, 'sql', 'models/marts/fct_revenue.sql');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.sourceKind).toBe('dbt-sql');
+    expect(blocks[0]?.sql).toContain('JOIN raw.users');
   });
 });

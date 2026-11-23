@@ -173,6 +173,8 @@ function parseNode(
     parallelAware: rawNode['Parallel Aware'] === true,
     workersPlanned: readOptionalNumber(rawNode, 'Workers Planned'),
     workersLaunched: readOptionalNumber(rawNode, 'Workers Launched'),
+    subplansRemoved: readOptionalNumber(rawNode, 'Subplans Removed'),
+    output: readOptionalStringArray(rawNode, 'Output'),
     buffers: parseBuffers(rawNode),
     sort: parseSortMetrics(rawNode),
     children,

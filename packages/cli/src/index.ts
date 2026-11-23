@@ -6,6 +6,7 @@ import {
   analyzeQueryTraces,
   assertSafeSqlConstructs,
   classifySqlStatement,
+  containsDbtJinja,
   type DatabaseEngine,
   detectDatabaseEngineFromUri,
   type DiagnosticSeverity,
@@ -20,6 +21,7 @@ import {
   InspectQueryService,
   isLoopbackHost,
   type LoggerPort,
+  normalizeDbtSqlTemplate,
   parseQueryTraceStream,
   type ProfileEnvironment,
   QueryExecutionError,
@@ -30,6 +32,7 @@ import {
   sanitizeSqlError,
   selectExplainCandidatesForTrace,
   StaticConnectionConfig,
+  type WorkloadProfile,
 } from '@query-autopsy/core';
 import { MultiEngineQueryExecutor } from '@query-autopsy/executors';
 
@@ -60,6 +63,7 @@ const THRESHOLD_RANK: Record<FailOnThreshold, number> = {
 const EXT_TO_LANGUAGE_ID: Record<string, string> = {
   '.sql': 'sql',
   '.pgsql': 'pgsql',
+  '.ipynb': 'jupyter',
   '.ts': 'typescript',
   '.tsx': 'typescriptreact',
   '.js': 'javascript',
@@ -123,7 +127,7 @@ function buildSarifEnvelope(
         tool: {
           driver: {
             name: 'QueryAutopsy',
-            version: '1.5.0',
+            version: '1.8.2',
             informationUri: 'https://github.com/marc14444/query-autopsy',
             rules: Array.from(rulesMap.values()),
           },
@@ -307,6 +311,7 @@ function getHelpText(): string {
     '  --params <json>           Positional parameter array JSON (e.g. "[42, \\"pending\\"]")',
     '  --timeout <ms>            statement_timeout ms (default: 5000)',
     '  --threshold <rows>        Seq Scan row warning threshold (default: 1000)',
+    '  --profile <auto|oltp|analytics> Diagnostic workload profile (default: auto)',
     '  --threshold-n1 <count>    N+1 identical-query burst threshold per requestId (default: 3)',
     '  --slow-ms <ms>            Slow trace query warning threshold in ms (default: 200)',
     '  --explain-top <N>         Run EXPLAIN on top N offending trace queries (requires --uri)',
@@ -342,7 +347,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   if (first === '-v' || first === '--version') {
-    io.stdout('1.5.0\n');
+    io.stdout('1.8.2\n');
     return 0;
   }
 
@@ -367,6 +372,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       engine: { type: 'string' },
       mode: { type: 'string', default: 'estimate' },
       env: { type: 'string' },
+      profile: { type: 'string' },
       format: { type: 'string' },
       'fail-on': { type: 'string' },
       params: { type: 'string' },
@@ -426,6 +432,17 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       );
     }
 
+    const workloadProfile = (values.profile ?? 'auto') as WorkloadProfile;
+    if (
+      workloadProfile !== 'auto' &&
+      workloadProfile !== 'oltp' &&
+      workloadProfile !== 'analytics'
+    ) {
+      throw new Error(
+        `Invalid --profile "${values.profile}". Expected auto, oltp, or analytics.`,
+      );
+    }
+
     const parsedParams: readonly unknown[] | undefined = values.params
       ? (() => {
           const parsed: unknown = JSON.parse(values.params);
@@ -458,6 +475,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       seqScanRowThreshold: Math.max(10, Number(values.threshold) || 1000),
       showRawJson: false,
       redactLiteralsInReports: redact,
+      workloadProfile,
     };
 
     if (resolvedCommand === 'trace') {
@@ -929,7 +947,10 @@ async function runOfflineCheck(
 
   for (const src of sources) {
     if (src.langId === 'sql') {
-      const spans = extractSqlStatementSpans(src.content, opts.engine);
+      const preparedSql = containsDbtJinja(src.content)
+        ? normalizeDbtSqlTemplate(src.content)
+        : src.content;
+      const spans = extractSqlStatementSpans(preparedSql, opts.engine);
       for (const span of spans) {
         checkedCount++;
         try {

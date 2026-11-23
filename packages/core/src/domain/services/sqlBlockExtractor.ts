@@ -9,7 +9,9 @@ export type SqlBlockSourceKind =
   | 'ts-orm-call'
   | 'python-sql'
   | 'go-sql'
-  | 'php-sql';
+  | 'php-sql'
+  | 'dbt-sql'
+  | 'notebook-cell';
 
 export interface DetectedSqlBlock {
   readonly sql: string;
@@ -81,6 +83,11 @@ const PYTHON_DB_CALL_METHODS = new Set([
   'fetchall',
   'fetchone',
   'query',
+  'read_sql',
+  'read_sql_query',
+  'read_sql_table',
+  'read_database',
+  'sql',
 ]);
 
 const GO_DB_CALL_METHODS = new Set([
@@ -1279,6 +1286,296 @@ function extractPhpSqlBlocks(
   return blocks;
 }
 
+function preserveNewlinesOnly(segment: string): string {
+  let out = '';
+  for (let idx = 0; idx < segment.length; idx++) {
+    out += segment[idx] === '\n' ? '\n' : ' ';
+  }
+  return out;
+}
+
+function resolveDbtExpression(rawExpr: string): string {
+  const trimmed = rawExpr.trim();
+  if (/^config\s*\(/i.test(trimmed)) {
+    return preserveNewlinesOnly(rawExpr);
+  }
+
+  const refMatch =
+    /^ref\s*\(\s*(?:['"]([a-zA-Z0-9_.-]+)['"]\s*,\s*)?['"]([a-zA-Z0-9_.-]+)['"]\s*\)$/i.exec(
+      trimmed,
+    );
+  if (refMatch) {
+    const modelName = refMatch[2] ?? refMatch[1] ?? 'dbt_model';
+    return modelName.replace(/[^a-zA-Z0-9_.]/g, '_');
+  }
+
+  const sourceMatch =
+    /^source\s*\(\s*['"]([a-zA-Z0-9_.-]+)['"]\s*,\s*['"]([a-zA-Z0-9_.-]+)['"]\s*\)$/i.exec(
+      trimmed,
+    );
+  if (sourceMatch?.[1] && sourceMatch[2]) {
+    const schema = sourceMatch[1].replace(/[^a-zA-Z0-9_]/g, '_');
+    const table = sourceMatch[2].replace(/[^a-zA-Z0-9_]/g, '_');
+    return `${schema}.${table}`;
+  }
+
+  if (/^this$/i.test(trimmed)) {
+    return 'dbt_this_model';
+  }
+
+  return 'dbt_expr';
+}
+
+export function containsDbtJinja(sql: string): boolean {
+  return sql.includes('{{') || sql.includes('{%') || sql.includes('{#');
+}
+
+/**
+ * Normalizes dbt Jinja tags (`{{ ref(...) }}`, `{{ source(...) }}`, `{{ config(...) }}`,
+ * `{% if ... %}`, `{# ... #}`) outside SQL string literals and comments while preserving line count.
+ */
+export function normalizeDbtSqlTemplate(rawSql: string): string {
+  if (!containsDbtJinja(rawSql)) {
+    return rawSql;
+  }
+
+  let out = '';
+  let i = 0;
+  const len = rawSql.length;
+
+  while (i < len) {
+    const ch = rawSql[i]!;
+    const next = rawSql[i + 1];
+
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const endOffset = skipJsString(rawSql, i, ch);
+      out += rawSql.slice(i, endOffset);
+      i = endOffset;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      const start = i;
+      i += 2;
+      while (i < len && rawSql[i] !== '\n') {
+        i++;
+      }
+      out += rawSql.slice(start, i);
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      const start = i;
+      i += 2;
+      while (i < len && !(rawSql[i] === '*' && rawSql[i + 1] === '/')) {
+        i++;
+      }
+      i = Math.min(len, i + 2);
+      out += rawSql.slice(start, i);
+      continue;
+    }
+
+    if (ch === '{' && (next === '#' || next === '%' || next === '{')) {
+      const closeChar = next === '{' ? '}' : next;
+      const closeIdx = rawSql.indexOf(`${closeChar}}`, i + 2);
+      if (closeIdx !== -1) {
+        const fullTag = rawSql.slice(i, closeIdx + 2);
+        const inner = rawSql.slice(i + 2, closeIdx);
+        i = closeIdx + 2;
+
+        if (next === '#' || next === '%') {
+          out += preserveNewlinesOnly(fullTag);
+        } else {
+          const cleanInner = inner.replace(/^-|-$/g, '');
+          const resolved = resolveDbtExpression(cleanInner);
+          const newlineCount = (fullTag.match(/\n/g) ?? []).length;
+          out += resolved + '\n'.repeat(newlineCount);
+        }
+        continue;
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+function isJupyterNotebookSource(languageId: string, fileName?: string): boolean {
+  const lowerLang = languageId.toLowerCase();
+  if (lowerLang === 'jupyter' || lowerLang === 'ipynb') {
+    return true;
+  }
+  return Boolean(fileName?.toLowerCase().endsWith('.ipynb'));
+}
+
+function findNotebookCellSourceLines(rawNotebookJson: string): readonly number[] {
+  const lines: number[] = [];
+  const regex = /"source"\s*:/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(rawNotebookJson)) !== null) {
+    let line = 0;
+    for (let idx = 0; idx < match.index; idx++) {
+      if (rawNotebookJson[idx] === '\n') {
+        line++;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function extractSqlSpansFromText(
+  text: string,
+  lineOffsets: readonly number[],
+  lineDelta: number,
+  sourceKind: SqlBlockSourceKind,
+): readonly DetectedSqlBlock[] {
+  const spans = extractSqlStatementSpans(text);
+  const blocks: DetectedSqlBlock[] = [];
+  for (const span of spans) {
+    if (!isInspectableSql(span.sql)) {
+      continue;
+    }
+    const startPos = offsetToPosition(lineOffsets, span.start);
+    const endPos = offsetToPosition(lineOffsets, span.end);
+    blocks.push({
+      sql: span.sql,
+      startLine: startPos.line + lineDelta,
+      startColumn: startPos.column,
+      endLine: endPos.line + lineDelta,
+      endColumn: endPos.column,
+      sourceKind,
+    });
+  }
+  return blocks;
+}
+
+/**
+ * Extracts inspectable SQL blocks from a Jupyter `.ipynb` JSON document, covering
+ * `%%sql` / `%%duckdb` / `%sql` magic cells and Python cells (`duckdb.sql`, `pd.read_sql`, `psycopg`, `SQLAlchemy`).
+ */
+export function extractJupyterNotebookSqlBlocks(
+  rawNotebookJson: string,
+): readonly DetectedSqlBlock[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawNotebookJson);
+  } catch {
+    return [];
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Array.isArray((parsed as { cells?: unknown }).cells)
+  ) {
+    return [];
+  }
+
+  const cells = (parsed as { cells: unknown[] }).cells;
+  const sourceAnchors = findNotebookCellSourceLines(rawNotebookJson);
+  const blocks: DetectedSqlBlock[] = [];
+
+  for (let cellIdx = 0; cellIdx < cells.length; cellIdx++) {
+    const rawCell = cells[cellIdx];
+    if (typeof rawCell !== 'object' || rawCell === null) {
+      continue;
+    }
+    const cellRecord = rawCell as { cell_type?: unknown; source?: unknown };
+    if (cellRecord.cell_type !== 'code') {
+      continue;
+    }
+
+    const rawSource = cellRecord.source;
+    const cellText = Array.isArray(rawSource)
+      ? rawSource.filter((line): line is string => typeof line === 'string').join('')
+      : typeof rawSource === 'string'
+        ? rawSource
+        : '';
+
+    if (!cellText.trim()) {
+      continue;
+    }
+
+    const anchorLine = sourceAnchors[cellIdx] ?? 0;
+    const rawLines = cellText.split('\n');
+    const firstNonEmptyIdx = rawLines.findIndex((line) => line.trim().length > 0);
+    if (firstNonEmptyIdx === -1) {
+      continue;
+    }
+
+    const firstLineTrimmed = rawLines[firstNonEmptyIdx]!.trim();
+
+    if (/^%%(?:sql|duckdb|postgres|postgresql|sqlite|mysql)\b/i.test(firstLineTrimmed)) {
+      const sqlLines = rawLines.map((line, idx) =>
+        idx <= firstNonEmptyIdx ? '' : line,
+      );
+      const rawSqlBody = sqlLines.join('\n');
+      const normalizedBody = containsDbtJinja(rawSqlBody)
+        ? normalizeDbtSqlTemplate(rawSqlBody)
+        : rawSqlBody;
+      blocks.push(
+        ...extractSqlSpansFromText(
+          normalizedBody,
+          computeLineOffsets(normalizedBody),
+          anchorLine,
+          'notebook-cell',
+        ),
+      );
+      continue;
+    }
+
+    // Handle inline `%sql ...` / `%duckdb ...` line magics alongside standard Python cells
+    const pythonSafeLines: string[] = [];
+    for (let lineIdx = 0; lineIdx < rawLines.length; lineIdx++) {
+      const line = rawLines[lineIdx]!;
+      const inlineMagic = /^\s*%(?:sql|duckdb|postgres|postgresql|sqlite|mysql)\s+(.+)$/i.exec(
+        line,
+      );
+      if (inlineMagic?.[1]) {
+        const sqlLine = inlineMagic[1];
+        if (isInspectableSql(sqlLine)) {
+          blocks.push({
+            sql: sqlLine.trim(),
+            startLine: anchorLine + lineIdx,
+            startColumn: 0,
+            endLine: anchorLine + lineIdx,
+            endColumn: sqlLine.trim().length,
+            sourceKind: 'notebook-cell',
+          });
+        }
+        pythonSafeLines.push('');
+        continue;
+      }
+
+      if (/^\s*[%!]/.test(line)) {
+        pythonSafeLines.push('');
+        continue;
+      }
+
+      pythonSafeLines.push(line);
+    }
+
+    const sanitizedPython = pythonSafeLines.join('\n');
+    const pyBlocks = extractPythonSqlBlocks(
+      sanitizedPython,
+      computeLineOffsets(sanitizedPython),
+    );
+    for (const pyBlock of pyBlocks) {
+      blocks.push({
+        ...pyBlock,
+        startLine: pyBlock.startLine + anchorLine,
+        endLine: pyBlock.endLine + anchorLine,
+        sourceKind: 'notebook-cell',
+      });
+    }
+  }
+
+  return blocks;
+}
+
 function isSqlSource(languageId: string, fileName?: string): boolean {
   if (SQL_LANGUAGE_IDS.has(languageId)) {
     return true;
@@ -1315,10 +1612,10 @@ function isPhpSource(languageId: string, fileName?: string): boolean {
 }
 
 /**
- * Pure domain extractor detecting inspectable SQL blocks across `.sql` files,
- * TypeScript/JavaScript ORMs (Prisma, Drizzle, TypeORM, Knex, pg/mysql2),
- * Python (`psycopg`, `sqlalchemy`, `sqlite3`, Django), Go (`database/sql`, `pgx`, `sqlx`, `GORM`),
- * and PHP (`Laravel DB::select/statement`, `PDO::prepare`, `Doctrine DBAL`).
+ * Pure domain extractor detecting inspectable SQL blocks across `.sql` files (including dbt Jinja models),
+ * Jupyter Notebooks (`.ipynb`), TypeScript/JavaScript ORMs (Prisma, Drizzle, TypeORM, Knex, pg/mysql2),
+ * Python (`psycopg`, `sqlalchemy`, `sqlite3`, Django, `pandas.read_sql`, `duckdb.sql`),
+ * Go (`database/sql`, `pgx`, `sqlx`, `GORM`), and PHP (`Laravel DB::select/statement`, `PDO::prepare`, `Doctrine DBAL`).
  */
 export function extractSqlBlocks(
   text: string,
@@ -1329,28 +1626,22 @@ export function extractSqlBlocks(
     return [];
   }
 
-  const lineOffsets = computeLineOffsets(text);
+  if (isJupyterNotebookSource(languageId, fileName)) {
+    return extractJupyterNotebookSqlBlocks(text);
+  }
 
   if (isSqlSource(languageId, fileName)) {
-    const spans = extractSqlStatementSpans(text);
-    const blocks: DetectedSqlBlock[] = [];
-    for (const span of spans) {
-      if (!isInspectableSql(span.sql)) {
-        continue;
-      }
-      const startPos = offsetToPosition(lineOffsets, span.start);
-      const endPos = offsetToPosition(lineOffsets, span.end);
-      blocks.push({
-        sql: span.sql,
-        startLine: startPos.line,
-        startColumn: startPos.column,
-        endLine: endPos.line,
-        endColumn: endPos.column,
-        sourceKind: 'sql-file',
-      });
-    }
-    return blocks;
+    const isDbt = containsDbtJinja(text);
+    const preparedText = isDbt ? normalizeDbtSqlTemplate(text) : text;
+    return extractSqlSpansFromText(
+      preparedText,
+      computeLineOffsets(preparedText),
+      0,
+      isDbt ? 'dbt-sql' : 'sql-file',
+    );
   }
+
+  const lineOffsets = computeLineOffsets(text);
 
   if (isTsOrJsSource(languageId, fileName)) {
     return extractTsTemplateBlocks(text, lineOffsets);

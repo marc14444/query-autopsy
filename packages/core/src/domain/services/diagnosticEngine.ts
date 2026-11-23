@@ -2,12 +2,15 @@ import type {
   DiagnosticFinding,
   DiagnosticSeverity,
   IndexSuggestion,
+  WorkloadProfile,
 } from '../models/diagnostic.js';
 import type { ExecutionPlan, PlanNode } from '../models/executionPlan.js';
+import { tokenizeSql } from './sqlTokenizer.js';
 
 export interface DiagnosticConfig {
   readonly seqScanRowThreshold: number;
   readonly sql?: string | undefined;
+  readonly workloadProfile?: WorkloadProfile | undefined;
 }
 
 export type DiagnosticRule = (
@@ -283,8 +286,123 @@ function parseSortKeyColumns(
   return parsed;
 }
 
+const ANALYTICS_AGG_NODE_TYPES = new Set([
+  'Aggregate',
+  'HashAggregate',
+  'GroupAggregate',
+  'MixedAggregate',
+  'WindowAgg',
+]);
+
+const HASH_SPILL_NODE_TYPES = new Set([
+  'Hash',
+  'Hash Join',
+  'HashAggregate',
+  'MixedAggregate',
+]);
+
+const SELECT_LIST_STAR_PREDECESSORS = new Set(['SELECT', 'DISTINCT', ',', '.']);
+const SELECT_CLAUSE_TERMINATORS = new Set([
+  'FROM',
+  'WHERE',
+  'GROUP',
+  'HAVING',
+  'ORDER',
+  'LIMIT',
+  'FETCH',
+  'UNION',
+  'INTERSECT',
+  'EXCEPT',
+  'INTO',
+  'WINDOW',
+  'VALUES',
+]);
+
+function planContainsAnalyticsAggregate(node: PlanNode): boolean {
+  if (ANALYTICS_AGG_NODE_TYPES.has(node.nodeType)) {
+    return true;
+  }
+  return node.children.some((child) => planContainsAnalyticsAggregate(child));
+}
+
+/**
+ * Token-aware check for `SELECT *` or `SELECT alias.*` inside any SELECT projection list,
+ * safely ignoring `COUNT(*)` and arithmetic multiplication (`price * qty`).
+ */
+export function hasTopLevelSelectStar(sql: string | undefined): boolean {
+  if (!sql || !sql.includes('*')) {
+    return false;
+  }
+
+  const tokens = tokenizeSql(sql, 'postgresql');
+  const inSelectStack: boolean[] = [false];
+  let prevTokenUpper = '';
+
+  for (const tok of tokens) {
+    if (tok.kind === 'whitespace' || tok.kind === 'comment') {
+      continue;
+    }
+    if (tok.kind === 'semicolon') {
+      inSelectStack.length = 1;
+      inSelectStack[0] = false;
+      prevTokenUpper = '';
+      continue;
+    }
+
+    const upper = tok.normalized.toUpperCase();
+    const depth = inSelectStack.length - 1;
+
+    if (upper === '(') {
+      inSelectStack.push(false);
+      prevTokenUpper = '(';
+      continue;
+    }
+    if (upper === ')') {
+      if (inSelectStack.length > 1) {
+        inSelectStack.pop();
+      }
+      prevTokenUpper = ')';
+      continue;
+    }
+
+    if (upper === 'SELECT' && tok.subkind === 'word') {
+      inSelectStack[depth] = true;
+      prevTokenUpper = upper;
+      continue;
+    }
+
+    if (inSelectStack[depth] && SELECT_CLAUSE_TERMINATORS.has(upper) && tok.subkind === 'word') {
+      inSelectStack[depth] = false;
+      prevTokenUpper = upper;
+      continue;
+    }
+
+    if (
+      inSelectStack[depth] &&
+      upper === '*' &&
+      SELECT_LIST_STAR_PREDECESSORS.has(prevTokenUpper)
+    ) {
+      return true;
+    }
+
+    prevTokenUpper = upper;
+  }
+
+  return false;
+}
+
 const seqScanRule: DiagnosticRule = (node, plan, config) => {
   if (node.nodeType !== 'Seq Scan' || !node.relationName) {
+    return null;
+  }
+
+  // In explicit analytics workload mode, an unfiltered Seq Scan feeding an Aggregate/Window
+  // is usually an intentional full-fact rollup where recommending an OLTP B-Tree index is noise.
+  if (
+    config.workloadProfile === 'analytics' &&
+    !node.filter &&
+    planContainsAnalyticsAggregate(plan.root)
+  ) {
     return null;
   }
 
@@ -570,7 +688,7 @@ const bitmapLossyBlocksRule: DiagnosticRule = (node, plan) => {
   };
 };
 
-const externalDiskSpillRule: DiagnosticRule = (node) => {
+const diskSpillRule: DiagnosticRule = (node) => {
   const childrenTempWritten = node.children.reduce(
     (sum, child) => sum + child.buffers.tempWrittenBlocks,
     0,
@@ -598,6 +716,23 @@ const externalDiskSpillRule: DiagnosticRule = (node) => {
       ? `${spilledKb.toLocaleString('en-US')} KB spilled to disk`
       : 'temporary disk I/O detected';
 
+  if (HASH_SPILL_NODE_TYPES.has(node.nodeType)) {
+    const batchSummary = isMultiBatchHash
+      ? `${node.hashBatches} hash batches`
+      : `${exclusiveTempWritten} temp blocks`;
+    return {
+      ruleId: 'HASH_AGG_OR_JOIN_DISK_SPILL',
+      severity: 'critical',
+      nodeId: node.id,
+      nodeType: node.nodeType,
+      relationName: node.relationName,
+      title: `Analytical Hash Disk Spill in ${node.nodeType} (${sizeInfo})`,
+      detail: `${node.nodeType} overflowed work_mem into ${batchSummary}, causing heavy temp disk reads/writes during analytical joining or grouping.`,
+      recommendation:
+        'Pre-filter input rows with partition/time bounds before joining or aggregating, project fewer columns (avoid SELECT *), or increase session work_mem for analytical jobs.',
+    };
+  }
+
   return {
     ruleId: 'EXTERNAL_DISK_SPILL',
     severity: 'critical',
@@ -608,6 +743,215 @@ const externalDiskSpillRule: DiagnosticRule = (node) => {
     detail: `Operation exceeded in-memory work_mem (${node.sort?.sortMethod ?? (isMultiBatchHash ? `${node.hashBatches} hash batches` : `${exclusiveTempWritten} temp blocks`)}).`,
     recommendation:
       'Reduce sorted/hashed row volume with tighter filters or pre-sorted indexes, or increase session work_mem if appropriate.',
+  };
+};
+
+const selectStarWideScanRule: DiagnosticRule = (node, plan, config) => {
+  if (
+    !node.relationName ||
+    (node.nodeType !== 'Seq Scan' &&
+      node.nodeType !== 'Bitmap Heap Scan' &&
+      node.nodeType !== 'Index Scan')
+  ) {
+    return null;
+  }
+
+  if (!hasTopLevelSelectStar(config.sql)) {
+    return null;
+  }
+
+  const minWidthBytes = config.workloadProfile === 'analytics' ? 96 : 180;
+  if (node.planWidth < minWidthBytes) {
+    return null;
+  }
+
+  const loops = node.actualLoops ?? 1;
+  const rows =
+    plan.mode === 'analyze' && node.actualRows !== undefined
+      ? Math.round((node.actualRows + (node.rowsRemovedByFilter ?? 0)) * loops)
+      : Math.round(node.planRows * loops);
+
+  if (rows < config.seqScanRowThreshold) {
+    return null;
+  }
+
+  const estimatedBytes = rows * node.planWidth;
+  const estimatedMb = (estimatedBytes / (1024 * 1024)).toFixed(1);
+  const severity: DiagnosticSeverity =
+    estimatedBytes >= 50 * 1024 * 1024 ||
+    (rows >= 100_000 && node.planWidth >= 256)
+      ? 'critical'
+      : 'warning';
+
+  return {
+    ruleId: 'SELECT_STAR_WIDE_SCAN',
+    severity,
+    nodeId: node.id,
+    nodeType: node.nodeType,
+    relationName: node.relationName,
+    title: `Wide SELECT * Scan on "${node.relationName}" (${node.planWidth} B/row, ~${estimatedMb} MB)`,
+    detail: `Query uses SELECT * while scanning ${rows.toLocaleString('en-US')} wide rows (~${node.planWidth} bytes/row), inflating I/O, hash table memory, and TOAST/network payload.`,
+    recommendation: `Replace SELECT * with only the explicit columns needed by downstream queries or aggregations on "${node.relationName}".`,
+  };
+};
+
+function findChildLeafScan(node: PlanNode): PlanNode | undefined {
+  if (
+    node.relationName &&
+    (node.nodeType === 'Seq Scan' ||
+      node.nodeType === 'Index Scan' ||
+      node.nodeType === 'Index Only Scan' ||
+      node.nodeType === 'Bitmap Heap Scan')
+  ) {
+    return node;
+  }
+  for (const child of node.children) {
+    const found = findChildLeafScan(child);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+function extractPartitionBaseName(relationName: string): string | undefined {
+  const match =
+    /^([a-zA-Z][a-zA-Z0-9_]*?)(?:_p?\d+|_\d{4}(?:[_-]?\d{2})?(?:[_-]?\d{2})?|_default)$/i.exec(
+      relationName,
+    );
+  return match?.[1]?.toLowerCase();
+}
+
+const missingPartitionPruningRule: DiagnosticRule = (node, plan, config) => {
+  if (node.nodeType !== 'Append' && node.nodeType !== 'Merge Append') {
+    return null;
+  }
+
+  if (node.subplansRemoved !== undefined && node.subplansRemoved > 0) {
+    return null;
+  }
+
+  const childScans = node.children
+    .map((child) => findChildLeafScan(child))
+    .filter((scan): scan is PlanNode => scan !== undefined && Boolean(scan.relationName));
+
+  if (childScans.length < 2) {
+    return null;
+  }
+
+  const explicitZeroPruned = node.subplansRemoved === 0;
+  let sharedPartitionedGroup = false;
+  if (!explicitZeroPruned && childScans.length >= 3) {
+    const bases = new Set(
+      childScans
+        .map((scan) => extractPartitionBaseName(scan.relationName!))
+        .filter((base): base is string => Boolean(base)),
+    );
+    sharedPartitionedGroup =
+      bases.size === 1 &&
+      childScans.every((scan) => Boolean(extractPartitionBaseName(scan.relationName!)));
+  }
+
+  if (!explicitZeroPruned && !sharedPartitionedGroup) {
+    return null;
+  }
+
+  const totalRows = childScans.reduce((sum, scan) => {
+    const loops = scan.actualLoops ?? 1;
+    const rows =
+      plan.mode === 'analyze' && scan.actualRows !== undefined
+        ? (scan.actualRows + (scan.rowsRemovedByFilter ?? 0)) * loops
+        : scan.planRows * loops;
+    return sum + Math.round(rows);
+  }, 0);
+
+  if (totalRows < config.seqScanRowThreshold && childScans.length < 4) {
+    return null;
+  }
+
+  const severity: DiagnosticSeverity =
+    childScans.length >= 12 || totalRows >= config.seqScanRowThreshold * 50
+      ? 'critical'
+      : 'warning';
+  const baseLabel =
+    extractPartitionBaseName(childScans[0]!.relationName!) ??
+    childScans[0]!.relationName!;
+
+  return {
+    ruleId: 'MISSING_PARTITION_PRUNING',
+    severity,
+    nodeId: node.id,
+    nodeType: node.nodeType,
+    relationName: baseLabel,
+    title: `Partition Pruning Missed Across ${childScans.length} Partitions (${totalRows.toLocaleString('en-US')} rows)`,
+    detail: `${node.nodeType} scanned ${childScans.length} child partitions under "${baseLabel}" with 0 subplans removed (missing or non-SARGable partition key filter).`,
+    recommendation:
+      'Filter directly on the partition column using raw bounds (e.g. WHERE event_date >= $1 AND event_date < $2 without DATE_TRUNC/EXTRACT wrappers) so PostgreSQL prunes partitions before scanning.',
+  };
+};
+
+function effectiveNodeRows(node: PlanNode, plan: ExecutionPlan): number {
+  const loops = node.actualLoops ?? 1;
+  if (plan.mode === 'analyze' && node.actualRows !== undefined) {
+    return Math.round(node.actualRows * loops);
+  }
+  return Math.round(node.planRows);
+}
+
+function isCartesianNestedLoop(
+  node: PlanNode,
+  plan: ExecutionPlan,
+  config: DiagnosticConfig,
+): boolean {
+  if (
+    node.nodeType !== 'Nested Loop' ||
+    (node.joinType !== undefined && node.joinType !== 'Inner') ||
+    node.children.length !== 2 ||
+    node.filter
+  ) {
+    return false;
+  }
+
+  const outer = node.children[0]!;
+  const inner = node.children[1]!;
+  if (inner.indexCond || inner.recheckCond || inner.filter) {
+    return false;
+  }
+
+  const outerRows = effectiveNodeRows(outer, plan);
+  const innerPerLoopRows =
+    plan.mode === 'analyze' && inner.actualRows !== undefined
+      ? Math.round(inner.actualRows)
+      : Math.round(inner.planRows);
+
+  if (outerRows < 50 || innerPerLoopRows < 50) {
+    return false;
+  }
+
+  const outRows = effectiveNodeRows(node, plan);
+  const cartesianThreshold = Math.max(config.seqScanRowThreshold * 5, 5000);
+  return outRows >= cartesianThreshold && outRows >= outerRows * innerPerLoopRows * 0.8;
+}
+
+const cartesianOrUnboundedJoinRule: DiagnosticRule = (node, plan, config) => {
+  if (!isCartesianNestedLoop(node, plan, config)) {
+    return null;
+  }
+
+  const outer = node.children[0]!;
+  const inner = node.children[1]!;
+  const outRows = effectiveNodeRows(node, plan);
+
+  return {
+    ruleId: 'CARTESIAN_OR_UNBOUNDED_JOIN',
+    severity: outRows >= 100_000 ? 'critical' : 'warning',
+    nodeId: node.id,
+    nodeType: node.nodeType,
+    relationName: inner.relationName ?? outer.relationName,
+    title: `Cartesian / Unbounded Join (${outRows.toLocaleString('en-US')} output rows)`,
+    detail: `Nested Loop produced ${outRows.toLocaleString('en-US')} rows across two unindexed multi-row inputs without an inner join or index condition.`,
+    recommendation:
+      'Add an explicit JOIN ON equality condition and index the join keys so PostgreSQL can switch to a Hash Join or Merge Join.',
   };
 };
 
@@ -696,8 +1040,15 @@ const lowCacheHitRule: DiagnosticRule = (node, plan) => {
   };
 };
 
-export const nestedLoopHighLoopsRule: DiagnosticRule = (node, plan) => {
+export const nestedLoopHighLoopsRule: DiagnosticRule = (
+  node,
+  plan,
+  config,
+) => {
   if (plan.mode !== 'analyze' || node.nodeType !== 'Nested Loop') {
+    return null;
+  }
+  if (isCartesianNestedLoop(node, plan, config)) {
     return null;
   }
 
@@ -726,7 +1077,10 @@ const RULES: readonly DiagnosticRule[] = [
   nonSargablePredicateRule,
   correlatedSubPlanRule,
   bitmapLossyBlocksRule,
-  externalDiskSpillRule,
+  diskSpillRule,
+  selectStarWideScanRule,
+  missingPartitionPruningRule,
+  cartesianOrUnboundedJoinRule,
   rowMisestimateRule,
   lowCacheHitRule,
   nestedLoopHighLoopsRule,

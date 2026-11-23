@@ -52,6 +52,8 @@ export interface PlanNode {
   readonly parallelAware: boolean;
   readonly workersPlanned?: number | undefined;
   readonly workersLaunched?: number | undefined;
+  readonly subplansRemoved?: number | undefined;
+  readonly output?: readonly string[] | undefined;
   readonly buffers: BufferMetrics;
   readonly sort?: SortMetrics | undefined;
   readonly children: readonly PlanNode[];

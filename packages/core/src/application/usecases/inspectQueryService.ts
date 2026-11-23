@@ -165,6 +165,7 @@ export class InspectQueryService implements InspectQueryUseCase {
     const diagnostics = adapter.analyzePlan(plan, {
       seqScanRowThreshold: settings.seqScanRowThreshold,
       sql: reportSql,
+      workloadProfile: settings.workloadProfile,
     });
 
     const report: InspectionReport = {

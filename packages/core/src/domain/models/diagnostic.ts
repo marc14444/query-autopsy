@@ -4,6 +4,8 @@ import type { ExplainMode, SqlStatementKind } from './queryRequest.js';
 
 export type DiagnosticSeverity = 'critical' | 'warning' | 'info';
 
+export type WorkloadProfile = 'auto' | 'oltp' | 'analytics';
+
 export type DiagnosticRuleId =
   | 'SEQ_SCAN_LARGE_TABLE'
   | 'ESR_COMPOSITE_INDEX_OPPORTUNITY'
@@ -11,6 +13,10 @@ export type DiagnosticRuleId =
   | 'CORRELATED_SUBPLAN'
   | 'BITMAP_LOSSY_BLOCKS'
   | 'EXTERNAL_DISK_SPILL'
+  | 'HASH_AGG_OR_JOIN_DISK_SPILL'
+  | 'SELECT_STAR_WIDE_SCAN'
+  | 'MISSING_PARTITION_PRUNING'
+  | 'CARTESIAN_OR_UNBOUNDED_JOIN'
   | 'PLANNER_ROW_MISESTIMATE'
   | 'LOW_CACHE_HIT_RATIO'
   | 'NESTED_LOOP_HIGH_LOOPS'
