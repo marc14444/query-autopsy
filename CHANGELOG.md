@@ -2,6 +2,20 @@
 
 All notable changes to **QueryAutopsy** will be documented in this file.
 
+## [1.8.2] - 2026-11-23
+
+### Added (OLAP Analytics Diagnostics, Jupyter `.ipynb` & dbt Prep)
+- **PostgreSQL OLAP / Data Warehouse Rules (`@query-autopsy/core`)**:
+  - Added `SELECT_STAR_WIDE_SCAN` (token-aware detection of `SELECT *` / `alias.*` inflating wide row scans while ignoring `COUNT(*)` and arithmetic `*`).
+  - Added `MISSING_PARTITION_PRUNING` (`Append` / `Merge Append` scanning child partitions with `Subplans Removed === 0` or unpruned partition hierarchies).
+  - Added `HASH_AGG_OR_JOIN_DISK_SPILL` (dedicated analytical `work_mem` spill guidance for `Hash`, `Hash Join`, `HashAggregate`, and `MixedAggregate` batches without duplicate `EXTERNAL_DISK_SPILL` alerts).
+  - Added `CARTESIAN_OR_UNBOUNDED_JOIN` (catches explosive `Nested Loop` cross products even in `estimate` mode).
+  - Added `workloadProfile` (`auto` | `oltp` | `analytics`) via `queryAutopsy.diagnostics.workloadProfile` in VS Code and `--profile` in `@query-autopsy/cli` / `@query-autopsy/mcp` to avoid OLTP `CREATE INDEX` noise on full-fact analytical aggregations.
+- **Jupyter Notebooks (`.ipynb`) & dbt Jinja Extraction (`sqlBlockExtractor.ts` + CLI)**:
+  - Added `extractJupyterNotebookSqlBlocks` supporting `%%sql` / `%%duckdb` / `%sql` magic cells plus Python data libraries (`pandas.read_sql`, `polars.read_database`, `duckdb.sql`, `psycopg`, `SQLAlchemy`) with cell-to-line mapping, and wired `.ipynb` scanning into `@query-autopsy/cli` and VS Code CodeLens.
+  - Added pure `normalizeDbtSqlTemplate` / `containsDbtJinja` pre-normalization (`{{ ref(...) }}`, `{{ source(...) }}`, `{{ config(...) }}`, `{% if ... %}`, `{# ... #}`) so dbt SQL models work cleanly in offline `check` and CodeLens extraction.
+- **Data & Analytics Roadmap**: Added [`docs/roadmap/ROADMAP-DATA-ANALYTICS-V1.8.2.md`](./docs/roadmap/ROADMAP-DATA-ANALYTICS-V1.8.2.md) charting `v1.8.2` → `v1.9.x` (DuckDB/Parquet, Cloud DW FinOps Dry-Run, Python pipeline traces).
+
 ## [1.8.1] - 2026-11-22
 
 ### Documentation

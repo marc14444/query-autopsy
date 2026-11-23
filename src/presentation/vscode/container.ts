@@ -95,6 +95,7 @@ const SUPPORTED_DOCUMENT_SELECTORS: vscode.DocumentSelector = [
   { language: 'go' },
   { language: 'php' },
   { pattern: '**/*.sql' },
+  { pattern: '**/*.ipynb' },
 ];
 
 /**

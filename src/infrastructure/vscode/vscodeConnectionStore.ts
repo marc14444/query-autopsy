@@ -7,6 +7,7 @@ import {
   sanitizeConnectionDisplayTarget,
   type SaveConnectionProfileInput,
   UnsafeQueryError,
+  type WorkloadProfile,
 } from '@query-autopsy/core';
 import * as vscode from 'vscode';
 
@@ -223,6 +224,10 @@ export class VsCodeConnectionStore
       redactLiteralsInReports: config.get<boolean>(
         'privacy.redactLiteralsInReports',
         false,
+      ),
+      workloadProfile: config.get<WorkloadProfile>(
+        'diagnostics.workloadProfile',
+        'auto',
       ),
     };
   }

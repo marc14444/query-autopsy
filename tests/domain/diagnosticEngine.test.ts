@@ -1,6 +1,7 @@
 import {
   analyzeExecutionPlan,
   extractFilterColumns,
+  hasTopLevelSelectStar,
   parsePostgreSqlPlan,
 } from '@query-autopsy/core';
 import { describe, expect, it } from 'vitest';
@@ -332,5 +333,178 @@ describe('analyzeExecutionPlan', () => {
 
     const lossy = findings.find((f) => f.ruleId === 'BITMAP_LOSSY_BLOCKS');
     expect(lossy?.severity).toBe('critical');
+  });
+
+  it('detects top-level SELECT * accurately while ignoring COUNT(*) and arithmetic *', () => {
+    expect(hasTopLevelSelectStar('SELECT * FROM orders')).toBe(true);
+    expect(hasTopLevelSelectStar('SELECT o.*, u.id FROM orders o JOIN users u ON u.id = o.user_id')).toBe(true);
+    expect(hasTopLevelSelectStar('WITH raw AS (SELECT * FROM events) SELECT count(*) FROM raw')).toBe(true);
+    expect(hasTopLevelSelectStar('SELECT COUNT(*) FROM orders')).toBe(false);
+    expect(hasTopLevelSelectStar('SELECT price * quantity AS total FROM order_items')).toBe(false);
+  });
+
+  it('flags OLAP diagnostics (SELECT_STAR_WIDE_SCAN, MISSING_PARTITION_PRUNING, HASH_AGG_OR_JOIN_DISK_SPILL, CARTESIAN_OR_UNBOUNDED_JOIN)', () => {
+    const rawPayload = [
+      {
+        Plan: {
+          'Node Type': 'HashAggregate',
+          'Startup Cost': 25000,
+          'Total Cost': 30000,
+          'Plan Rows': 50000,
+          'Plan Width': 320,
+          'Actual Startup Time': 400,
+          'Actual Total Time': 680,
+          'Actual Rows': 45000,
+          'Actual Loops': 1,
+          'Hash Batches': 8,
+          'Temp Read Blocks': 1200,
+          'Temp Written Blocks': 1200,
+          Plans: [
+            {
+              'Node Type': 'Append',
+              'Startup Cost': 0,
+              'Total Cost': 22000,
+              'Plan Rows': 120000,
+              'Plan Width': 320,
+              'Actual Startup Time': 0.05,
+              'Actual Total Time': 210,
+              'Actual Rows': 120000,
+              'Actual Loops': 1,
+              'Subplans Removed': 0,
+              Plans: [
+                {
+                  'Node Type': 'Seq Scan',
+                  'Relation Name': 'events_2026_01',
+                  'Startup Cost': 0,
+                  'Total Cost': 11000,
+                  'Plan Rows': 60000,
+                  'Plan Width': 320,
+                  'Actual Startup Time': 0.02,
+                  'Actual Total Time': 105,
+                  'Actual Rows': 60000,
+                  'Actual Loops': 1,
+                },
+                {
+                  'Node Type': 'Seq Scan',
+                  'Relation Name': 'events_2026_02',
+                  'Startup Cost': 0,
+                  'Total Cost': 11000,
+                  'Plan Rows': 60000,
+                  'Plan Width': 320,
+                  'Actual Startup Time': 0.02,
+                  'Actual Total Time': 105,
+                  'Actual Rows': 60000,
+                  'Actual Loops': 1,
+                },
+              ],
+            },
+          ],
+        },
+        'Execution Time': 690,
+      },
+    ];
+
+    const plan = parsePostgreSqlPlan(rawPayload, 'analyze');
+    const findings = analyzeExecutionPlan(plan, {
+      seqScanRowThreshold: 1000,
+      sql: 'SELECT * FROM events WHERE true',
+      workloadProfile: 'analytics',
+    });
+
+    // workloadProfile='analytics' suppresses unfiltered OLTP SEQ_SCAN_LARGE_TABLE noise under HashAggregate
+    expect(findings.some((f) => f.ruleId === 'SEQ_SCAN_LARGE_TABLE')).toBe(false);
+
+    // Hash spill maps to HASH_AGG_OR_JOIN_DISK_SPILL without duplicate EXTERNAL_DISK_SPILL
+    expect(findings.filter((f) => f.ruleId === 'HASH_AGG_OR_JOIN_DISK_SPILL')).toHaveLength(1);
+    expect(findings.some((f) => f.ruleId === 'EXTERNAL_DISK_SPILL')).toBe(false);
+
+    expect(findings.some((f) => f.ruleId === 'MISSING_PARTITION_PRUNING')).toBe(true);
+    expect(findings.filter((f) => f.ruleId === 'SELECT_STAR_WIDE_SCAN')).toHaveLength(2);
+
+    // Ensure pruned Append (Subplans Removed > 0) does NOT false-positive
+    const prunedPlan = parsePostgreSqlPlan(
+      [
+        {
+          Plan: {
+            'Node Type': 'Append',
+            'Startup Cost': 0,
+            'Total Cost': 500,
+            'Plan Rows': 2000,
+            'Plan Width': 32,
+            'Subplans Removed': 11,
+            Plans: [
+              {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'events_2026_12',
+                'Startup Cost': 0,
+                'Total Cost': 500,
+                'Plan Rows': 2000,
+                'Plan Width': 32,
+              },
+              {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'events_default',
+                'Startup Cost': 0,
+                'Total Cost': 1,
+                'Plan Rows': 1,
+                'Plan Width': 32,
+              },
+            ],
+          },
+        },
+      ],
+      'estimate',
+    );
+    expect(
+      analyzeExecutionPlan(prunedPlan, {
+        seqScanRowThreshold: 1000,
+        sql: 'SELECT COUNT(*) FROM events',
+      }).some(
+        (f) =>
+          f.ruleId === 'MISSING_PARTITION_PRUNING' ||
+          f.ruleId === 'SELECT_STAR_WIDE_SCAN',
+      ),
+    ).toBe(false);
+
+    // Cartesian Nested Loop detected cleanly in estimate mode
+    const cartesianPlan = parsePostgreSqlPlan(
+      [
+        {
+          Plan: {
+            'Node Type': 'Nested Loop',
+            'Join Type': 'Inner',
+            'Startup Cost': 0,
+            'Total Cost': 50000,
+            'Plan Rows': 250000,
+            'Plan Width': 64,
+            Plans: [
+              {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'users',
+                'Startup Cost': 0,
+                'Total Cost': 20,
+                'Plan Rows': 500,
+                'Plan Width': 32,
+              },
+              {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'countries',
+                'Startup Cost': 0,
+                'Total Cost': 20,
+                'Plan Rows': 500,
+                'Plan Width': 32,
+              },
+            ],
+          },
+        },
+      ],
+      'estimate',
+    );
+    const cartFindings = analyzeExecutionPlan(cartesianPlan, {
+      seqScanRowThreshold: 1000,
+    });
+    expect(cartFindings.some((f) => f.ruleId === 'CARTESIAN_OR_UNBOUNDED_JOIN')).toBe(
+      true,
+    );
   });
 });

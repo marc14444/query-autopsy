@@ -400,5 +400,56 @@ describe('@query-autopsy/cli', () => {
     const phpCheck = JSON.parse(phpIo.getStdout()) as { checkedCount: number; passed: boolean };
     expect(phpCheck.checkedCount).toBe(1);
     expect(phpCheck.passed).toBe(true);
+
+    // Verify CLI `check` handles dbt Jinja models & .ipynb notebooks and rejects invalid --profile
+    const dbtFile = path.join(dir, 'fct_orders.sql');
+    await fs.writeFile(
+      dbtFile,
+      [
+        "{{ config(materialized='table') }}",
+        "SELECT id, user_id FROM {{ ref('stg_orders') }} WHERE status = 'paid';",
+      ].join('\n'),
+      'utf-8',
+    );
+    const nbFile = path.join(dir, 'exploration.ipynb');
+    await fs.writeFile(
+      nbFile,
+      JSON.stringify({
+        cells: [
+          {
+            cell_type: 'code',
+            source: ['%%sql\n', 'SELECT count(*) FROM stg_orders;\n'],
+          },
+        ],
+      }),
+      'utf-8',
+    );
+    const analyticsIo = createTestIo();
+    const analyticsCheckCode = await runCli(
+      ['check', '--file', nbFile, '--format', 'json'],
+      analyticsIo.io,
+    );
+    expect(analyticsCheckCode).toBe(0);
+    const nbParsed = JSON.parse(analyticsIo.getStdout()) as {
+      checkedCount: number;
+      passed: boolean;
+    };
+    expect(nbParsed.checkedCount).toBe(1);
+    expect(nbParsed.passed).toBe(true);
+
+    const dbtIo = createTestIo();
+    const dbtCode = await runCli(
+      ['check', '--file', dbtFile, '--format', 'json'],
+      dbtIo.io,
+    );
+    expect(dbtCode).toBe(0);
+
+    const badProfileIo = createTestIo();
+    const badProfileCode = await runCli(
+      ['check', '--sql', 'SELECT 1', '--profile', 'invalid_profile'],
+      badProfileIo.io,
+    );
+    expect(badProfileCode).toBe(1);
+    expect(badProfileIo.getStderr()).toContain('Invalid --profile');
   });
 });

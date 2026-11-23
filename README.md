@@ -57,10 +57,11 @@ A query over 20 local seed rows finishes in **1 ms** even with no index — then
    - Click **Copy PR Report (MD)** to paste the benchmark directly into your Pull Request.
 5. **Find database hotspots**: open **Explorer → `QueryAutopsy: Slow Queries`** to inspect the top slowest fingerprints from `pg_stat_statements` (PostgreSQL) or `performance_schema` (MySQL).
 
-**Supported languages & ORMs for inline CodeLens**:
-- **SQL** (`.sql`, PostgreSQL, MySQL, SQLite)
+**Supported languages, notebooks & ORMs for inline CodeLens and CLI**:
+- **SQL & dbt** (`.sql`, PostgreSQL, MySQL, SQLite, dbt Jinja `{{ ref(...) }}` / `{{ source(...) }}` offline checks)
+- **Jupyter Notebooks** (`.ipynb`, `%%sql` / `%sql` magic cells, `pandas.read_sql`, `polars.read_database`, `duckdb.sql`)
 - **TypeScript / JavaScript**: Prisma (`$queryRaw`, `$queryRawUnsafe`), Drizzle (`sql\`...\``), TypeORM (`.query()`), Knex (`.raw()`), `pg`, `mysql2`
-- **Python**: `psycopg`, SQLAlchemy (`text()`), `sqlite3`, Django (`.raw()`), triple-quoted / `# sql`
+- **Python**: `psycopg`, SQLAlchemy (`text()`), `sqlite3`, Django (`.raw()`), `pandas`, `polars`, `duckdb`, triple-quoted / `# sql`
 - **Go**: `database/sql`, `pgx`, `sqlx`, GORM
 - **PHP / Laravel**: `DB::select()`, `DB::statement()`, `DB::raw()`, PDO `->prepare()`, heredocs/nowdocs (`<<<SQL`)
 
@@ -188,7 +189,7 @@ npx @query-autopsy/cli trace --file .query-autopsy/traces.jsonl --fail-on warnin
 
 ## Diagnostics & Understanding Your Autopsy Report
 
-- **PostgreSQL (`EXPLAIN` rules)**: `SEQ_SCAN_LARGE_TABLE`, **ESR Composite Index** (`WHERE` Equality → `ORDER BY` Sort → Range, including `Bitmap Heap Scan`), non-SARGable predicates (`lower(col)`, casts), correlated `SubPlan`s, lossy bitmap heap blocks, external disk spills, buffer misses, row misestimates, and high-loop `Nested Loop`s.
+- **PostgreSQL (`EXPLAIN` rules)**: `SEQ_SCAN_LARGE_TABLE`, **ESR Composite Index** (`WHERE` Equality → `ORDER BY` Sort → Range, including `Bitmap Heap Scan`), non-SARGable predicates (`lower(col)`, casts), correlated `SubPlan`s, lossy bitmap heap blocks, external disk spills, buffer misses, row misestimates, high-loop `Nested Loop`s, plus **OLAP / Data rules** (`SELECT_STAR_WIDE_SCAN`, `MISSING_PARTITION_PRUNING`, `HASH_AGG_OR_JOIN_DISK_SPILL`, `CARTESIAN_OR_UNBOUNDED_JOIN`, configurable via `workloadProfile: oltp | analytics`).
 - **MySQL & SQLite**: Full Table Scan (`ALL` / `SCAN`), `Using filesort`, `Using temporary`, `USE TEMP B-TREE`, transient automatic indexes, and row misestimates — paired with copyable `CREATE INDEX` SQL.
 - **Runtime Traces**: `N_PLUS_ONE_BURST` (per-`requestId` normalized SQL burst) and `SLOW_TRACE_QUERY`.
 

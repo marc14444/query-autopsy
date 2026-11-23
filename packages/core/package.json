@@ -1,6 +1,6 @@
 {
   "name": "@query-autopsy/core",
-  "version": "1.5.0",
+  "version": "1.8.2",
   "description": "Zero-dependency PostgreSQL, MySQL 8+, and SQLite EXPLAIN plan parser, diagnostic engine, SQL safety classifier, and PII redactor.",
   "license": "MIT",
   "main": "./dist/cjs/index.js",

@@ -31,6 +31,7 @@ import {
   type SlowQuerySortBy,
   StaticConnectionConfig,
   UnsafeQueryError,
+  type WorkloadProfile,
 } from '@query-autopsy/core';
 
 export interface McpToolAnnotations {
@@ -60,6 +61,7 @@ export interface McpFirewallOptions {
   readonly allowAnalyze?: boolean | undefined;
   readonly statementTimeoutMs?: number | undefined;
   readonly seqScanRowThreshold?: number | undefined;
+  readonly workloadProfile?: WorkloadProfile | undefined;
   readonly redactLiterals?: boolean | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly logger?: LoggerPort | undefined;
@@ -312,6 +314,7 @@ export class McpFirewallServer {
       seqScanRowThreshold,
       showRawJson: false,
       redactLiteralsInReports: this.redactLiterals,
+      workloadProfile: options.workloadProfile ?? 'auto',
     };
 
     this.connectionConfig = new StaticConnectionConfig({

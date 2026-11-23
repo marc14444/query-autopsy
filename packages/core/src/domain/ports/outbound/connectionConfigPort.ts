@@ -2,6 +2,7 @@ import type {
   ConnectionProfile,
   SaveConnectionProfileInput,
 } from '../../models/connectionProfile.js';
+import type { WorkloadProfile } from '../../models/diagnostic.js';
 
 export interface RuntimeSettings {
   readonly statementTimeoutMs: number;
@@ -9,6 +10,7 @@ export interface RuntimeSettings {
   readonly seqScanRowThreshold: number;
   readonly showRawJson: boolean;
   readonly redactLiteralsInReports?: boolean | undefined;
+  readonly workloadProfile?: WorkloadProfile | undefined;
 }
 
 export interface ConnectionConfigPort {

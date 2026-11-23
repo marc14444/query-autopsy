@@ -483,4 +483,50 @@ describe('@query-autopsy/mcp Zero-Trust Firewall & stdio JSON-RPC', () => {
     };
     expect(inlineData.diagnostics[0]?.ruleId).toBe('N_PLUS_ONE_BURST');
   });
+
+  it('forwards --profile analytics to Suppress OLTP Seq Scan noise under HashAggregate via MCP', async () => {
+    const parsedArgs = parseMcpCliArgs(['--profile', 'analytics']);
+    expect(parsedArgs.workloadProfile).toBe('analytics');
+    expect(() => parseMcpCliArgs(['--profile', 'unknown'])).toThrow(/Invalid --profile/);
+
+    const exec = createMockExecutor({
+      executeExplain: vi.fn().mockResolvedValue([
+        {
+          Plan: {
+            'Node Type': 'HashAggregate',
+            'Startup Cost': 1200,
+            'Total Cost': 1500,
+            'Plan Rows': 5000,
+            'Plan Width': 32,
+            Plans: [
+              {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'fact_orders',
+                'Startup Cost': 0,
+                'Total Cost': 1000,
+                'Plan Rows': 50000,
+                'Plan Width': 16,
+              },
+            ],
+          },
+        },
+      ]),
+    });
+
+    const firewall = new McpFirewallServer({
+      connectionString: 'postgresql://postgres@127.0.0.1:5432/analytics_db',
+      queryExecutor: exec,
+      workloadProfile: parsedArgs.workloadProfile,
+    });
+    const res = await firewall.callTool('autopsy_explain', {
+      sql: 'SELECT user_id, COUNT(*) FROM fact_orders GROUP BY user_id',
+    });
+    expect(res.isError).toBeUndefined();
+    const payload = res.structuredContent as {
+      diagnostics: Array<{ ruleId: string }>;
+    };
+    expect(payload.diagnostics.some((d) => d.ruleId === 'SEQ_SCAN_LARGE_TABLE')).toBe(
+      false,
+    );
+  });
 });

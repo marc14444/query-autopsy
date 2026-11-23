@@ -4,6 +4,7 @@ import type {
   DatabaseEngine,
   LoggerPort,
   ProfileEnvironment,
+  WorkloadProfile,
 } from '@query-autopsy/core';
 import {
   MultiEngineQueryExecutor,
@@ -21,6 +22,7 @@ export interface ParsedMcpCliConfig {
   readonly allowAnalyze: boolean;
   readonly statementTimeoutMs: number;
   readonly seqScanRowThreshold: number;
+  readonly workloadProfile: WorkloadProfile;
   readonly redactLiterals: boolean;
   readonly verbose: boolean;
 }
@@ -66,6 +68,7 @@ export function parseMcpCliArgs(
       'allow-analyze': { type: 'boolean', default: false },
       timeout: { type: 'string', default: '5000' },
       threshold: { type: 'string', default: '1000' },
+      profile: { type: 'string' },
       'no-redact': { type: 'boolean', default: false },
       verbose: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
@@ -86,6 +89,17 @@ export function parseMcpCliArgs(
     );
   }
 
+  const workloadProfile = (values.profile ?? 'auto') as WorkloadProfile;
+  if (
+    workloadProfile !== 'auto' &&
+    workloadProfile !== 'oltp' &&
+    workloadProfile !== 'analytics'
+  ) {
+    throw new Error(
+      `Invalid --profile "${values.profile}". Expected auto, oltp, or analytics.`,
+    );
+  }
+
   return {
     help: values.help === true,
     version: values.version === true,
@@ -96,6 +110,7 @@ export function parseMcpCliArgs(
     allowAnalyze: values['allow-analyze'] === true,
     statementTimeoutMs: Math.max(100, Number(values.timeout) || 5000),
     seqScanRowThreshold: Math.max(10, Number(values.threshold) || 1000),
+    workloadProfile,
     redactLiterals: values['no-redact'] !== true,
     verbose: values.verbose === true,
   };
@@ -115,6 +130,7 @@ function getHelpText(): string {
     '  --allow-analyze                 Allow read-only EXPLAIN ANALYZE on non-production targets',
     '  --timeout <ms>                  Max statement_timeout in ms (default: 5000, max: 30000)',
     '  --threshold <rows>              Seq Scan row threshold (default: 1000)',
+    '  --profile <auto|oltp|analytics> Diagnostic workload profile (default: auto)',
     '  --no-redact                     Disable PII literal redaction (enabled by default)',
     '  --verbose                       Log operational events to stderr',
     '  -h, --help                      Show help',
@@ -141,7 +157,7 @@ export async function main(
   }
 
   if (parsed.version) {
-    process.stderr.write('1.5.0\n');
+    process.stderr.write('1.8.2\n');
     return 0;
   }
 
@@ -178,6 +194,7 @@ export async function main(
     allowAnalyze: parsed.allowAnalyze,
     statementTimeoutMs: parsed.statementTimeoutMs,
     seqScanRowThreshold: parsed.seqScanRowThreshold,
+    workloadProfile: parsed.workloadProfile,
     redactLiterals: parsed.redactLiterals,
     logger,
     queryExecutor,
