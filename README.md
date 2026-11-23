@@ -241,6 +241,7 @@ python3 -m unittest discover -s packages/python/tests -v  # Python bridge unit t
 - **[PRD-001](./docs/prd/PRD-001-query-autopsy-mvp.md)** — Product Requirements
 - **[Master Roadmap (v0.2 → v1.0)](./docs/roadmap/ROADMAP-V0.2-TO-V1.0.md)** — Delivery roadmap across all 4 sprints
 - **[Universal Ecosystem & Security Roadmap (v1.1 → v2.0)](./docs/roadmap/ROADMAP-V1.1-TO-V2.0.md)** — Core extraction, MCP Firewall, JSONL Traces & Bridges
+- **[Data & Analytics Roadmap (v1.8.2 → v1.9.x)](./docs/roadmap/ROADMAP-DATA-ANALYTICS-V1.8.2.md)** — OLAP diagnostics, Jupyter/dbt, DuckDB/Parquet, FinOps DW dry-runs & Python pipeline traces
 - **[Hexagonal Architecture](./docs/architecture/HEXAGONAL-ARCHITECTURE.md)** — Ports & Adapters blueprint
 - **[ADRs](./docs/adr/README.md)** — Architecture Decision Records (`0001`–`0006`)
 - **[Technical Specifications](./docs/specs/TECH-SPEC-01-sql-classifier-and-pg-executor.md)** — Classifier, Executor, Parser, Diagnostics, and Webview/CodeLens specs
