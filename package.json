@@ -2,7 +2,7 @@
   "name": "query-autopsy",
   "displayName": "QueryAutopsy",
   "description": "X-Ray your PostgreSQL, MySQL, and SQLite queries inside VS Code. Inspect EXPLAIN execution plans, catch Full Table Scans, buffer bottlenecks, and row misestimates.",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "workspaces": [
     "packages/*"
   ],
@@ -356,8 +356,8 @@
     "prepublishOnly": "npm run check-types && npm run test && npm run package"
   },
   "dependencies": {
-    "@query-autopsy/core": "1.8.2",
-    "@query-autopsy/executors": "1.8.2",
+    "@query-autopsy/core": "1.8.3",
+    "@query-autopsy/executors": "1.8.3",
     "mysql2": "^3.24.6",
     "pg": "^8.13.1",
     "sql.js": "^1.17.0"

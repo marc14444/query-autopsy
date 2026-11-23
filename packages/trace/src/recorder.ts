@@ -63,6 +63,9 @@ export function normalizeTraceEngine(raw?: string): DatabaseEngine | undefined {
   if (lower === 'sqlite' || lower === 'sqlite3' || lower === 'better-sqlite3' || lower === 'libsql') {
     return 'sqlite';
   }
+  if (lower === 'duckdb' || lower === 'duck') {
+    return 'duckdb';
+  }
   return undefined;
 }
 

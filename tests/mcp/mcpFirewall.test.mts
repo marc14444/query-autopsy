@@ -528,5 +528,25 @@ describe('@query-autopsy/mcp Zero-Trust Firewall & stdio JSON-RPC', () => {
     expect(payload.diagnostics.some((d) => d.ruleId === 'SEQ_SCAN_LARGE_TABLE')).toBe(
       false,
     );
+
+    const parsedDuck = parseMcpCliArgs(['--engine', 'duckdb']);
+    expect(parsedDuck.engine).toBe('duckdb');
+
+    const duckCheckOk = await firewall.callTool('autopsy_check_sql', {
+      engine: 'duckdb',
+      sql: "SELECT user_id FROM read_parquet('events.parquet')",
+    });
+    expect(duckCheckOk.isError).toBeUndefined();
+    expect(
+      (duckCheckOk.structuredContent as { safe: boolean; engine: string }).engine,
+    ).toBe('duckdb');
+
+    const duckCheckDdl = await firewall.callTool('autopsy_check_sql', {
+      engine: 'duckdb',
+      sql: 'INSTALL httpfs;',
+    });
+    expect(
+      (duckCheckDdl.structuredContent as { safe: boolean; statementKind: string }).safe,
+    ).toBe(false);
   });
 });

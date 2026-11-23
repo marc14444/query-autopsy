@@ -5,8 +5,8 @@
 <h1 align="center">QueryAutopsy</h1>
 
 <p align="center">
-  <strong>X-Ray your PostgreSQL, MySQL 8+, and SQLite queries inside your editor, AI assistant, and CI pipeline.</strong><br/>
-  Catch Full Table Scans, missing composite indexes, disk spills, and N+1 bursts before they hit production — works in <strong>VS Code, Antigravity, Cursor, Windsurf, and VSCodium</strong>.
+  <strong>X-Ray your PostgreSQL, MySQL 8+, SQLite, and DuckDB / Parquet queries inside your editor, AI assistant, and CI pipeline.</strong><br/>
+  Catch Full Table Scans, missing composite indexes, disk spills, Parquet projection misses, and N+1 bursts before they hit production — works in <strong>VS Code, Antigravity, Cursor, Windsurf, and VSCodium</strong>.
 </p>
 
 <p align="center">
@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/PostgreSQL-14%E2%80%9317%2B-336791.svg" alt="PostgreSQL 14-17+" />
   <img src="https://img.shields.io/badge/MySQL-8%2B%20%2F%20MariaDB-4479A1.svg" alt="MySQL 8+ / MariaDB" />
   <img src="https://img.shields.io/badge/SQLite-WASM%20(Zero%20Native)-003B57.svg" alt="SQLite WASM" />
+  <img src="https://img.shields.io/badge/DuckDB-Parquet%20%2F%20OLAP-FFF000.svg" alt="DuckDB Parquet" />
   <img src="https://img.shields.io/badge/MCP-Zero--Trust%20Read--Only-10b981.svg" alt="Zero-Trust MCP" />
 </p>
 
@@ -181,6 +182,7 @@ npx @query-autopsy/cli trace --file .query-autopsy/traces.jsonl --fail-on warnin
 | **PostgreSQL `EXPLAIN ANALYZE`** | Runs inside `BEGIN READ ONLY` + `SET LOCAL statement_timeout` + unconditional `ROLLBACK` in `finally`; rejects `DDL` & multi-statement strings before touching PostgreSQL. |
 | **MySQL 8+ / MariaDB** | Executes inside `START TRANSACTION` + `ROLLBACK`; supports `EXPLAIN ANALYZE` (`FORMAT=TREE`) and `EXPLAIN FORMAT=JSON`. |
 | **SQLite (`.sqlite` / `.db`)** | Runs `EXPLAIN QUERY PLAN` via pure-JS **WASM (`sql.js`)** on an isolated in-memory copy — zero native binaries, zero writes to `.db` files. |
+| **DuckDB (`.duckdb` / Parquet)** | Invokes DuckDB CLI in `-readonly` mode with workspace symlink/realpath confinement, blocks `INSTALL`/`LOAD`/`COPY` & remote URLs (`s3://`/`http://`) by default. |
 | **Credentials** | Stored in VS Code encrypted `SecretStorage`; never logged or written into workspace files. |
 | **Dev Trace Bridges** | Disabled in `production`/`prod` by default; `'...'` literals replaced with `'[REDACTED]'`; `bindings: []` stripped; `.query-autopsy/.gitignore` created; symlink paths rejected. |
 | **MCP AI Firewall** | Strict argument allowlisting, read-only annotations, `estimate`-only default, no arbitrary SQL execution, workspace-realpath confinement on trace files. |
@@ -191,6 +193,7 @@ npx @query-autopsy/cli trace --file .query-autopsy/traces.jsonl --fail-on warnin
 
 - **PostgreSQL (`EXPLAIN` rules)**: `SEQ_SCAN_LARGE_TABLE`, **ESR Composite Index** (`WHERE` Equality → `ORDER BY` Sort → Range, including `Bitmap Heap Scan`), non-SARGable predicates (`lower(col)`, casts), correlated `SubPlan`s, lossy bitmap heap blocks, external disk spills, buffer misses, row misestimates, high-loop `Nested Loop`s, plus **OLAP / Data rules** (`SELECT_STAR_WIDE_SCAN`, `MISSING_PARTITION_PRUNING`, `HASH_AGG_OR_JOIN_DISK_SPILL`, `CARTESIAN_OR_UNBOUNDED_JOIN`, configurable via `workloadProfile: oltp | analytics`).
 - **MySQL & SQLite**: Full Table Scan (`ALL` / `SCAN`), `Using filesort`, `Using temporary`, `USE TEMP B-TREE`, transient automatic indexes, and row misestimates — paired with copyable `CREATE INDEX` SQL.
+- **DuckDB & Parquet**: `PARQUET_PROJECTION_MISS` (`SELECT *` / wide column scans), `PARQUET_PREDICATE_PUSHDOWN_MISS`, `DUCKDB_OUT_OF_CORE_SPILL`, and `CARTESIAN_OR_UNBOUNDED_JOIN`.
 - **Runtime Traces**: `N_PLUS_ONE_BURST` (per-`requestId` normalized SQL burst) and `SLOW_TRACE_QUERY`.
 
 | Metric | What It Means |
@@ -227,7 +230,7 @@ If you want to hack on QueryAutopsy itself or run the local Docker playground:
 ```bash
 npm run check-types   # Build workspace packages + strict tsc checks (host + webview)
 npm run lint          # ESLint across extension, packages, scripts, and tests
-npm run test          # Vitest suite (125 tests across 30 files, offline)
+npm run test          # Vitest suite (138 tests across 32 files, offline)
 npm run test:e2e      # Live E2E suite against Docker PostgreSQL 16 & MySQL 8.4
 npm run build         # Bundle extension, webview, and sql-wasm.wasm with esbuild
 npm run package:vsix  # Build universal VSIX installer

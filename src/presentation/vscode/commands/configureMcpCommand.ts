@@ -170,11 +170,17 @@ export async function runConfigureMcpCommand(
           : '${QUERY_AUTOPSY_URI}',
     });
 
-    if (activeProfile && resolveProfileEngine(activeProfile) === 'sqlite') {
+    if (
+      activeProfile &&
+      (resolveProfileEngine(activeProfile) === 'sqlite' ||
+        resolveProfileEngine(activeProfile) === 'duckdb')
+    ) {
+      const profileEngine = resolveProfileEngine(activeProfile);
       const rawUri = await connectionConfig.getConnectionString();
-      if (rawUri && !connectionUriHasPlaintextPassword(rawUri, 'sqlite')) {
+      if (rawUri && !connectionUriHasPlaintextPassword(rawUri, profileEngine)) {
+        const engineTitle = profileEngine === 'duckdb' ? 'DuckDB' : 'SQLite';
         credentialChoices.push({
-          label: `$(file-binary) Active SQLite Database (${activeProfile.displayTarget})`,
+          label: `$(file-binary) Active ${engineTitle} Database (${activeProfile.displayTarget})`,
           description: 'Zero password required',
           detail: rawUri,
           sourceKind: 'sqlite-active',

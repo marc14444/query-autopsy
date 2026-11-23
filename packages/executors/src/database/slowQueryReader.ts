@@ -43,6 +43,13 @@ export class MultiEngineSlowQueryReader implements SlowQueryPort {
           reason:
             'SQLite does not persist server-side execution statistics. Use CodeLens or right-click EXPLAIN directly on SQL statements.',
         };
+      case 'duckdb':
+        return {
+          supported: false,
+          engine: 'duckdb',
+          reason:
+            'DuckDB runs in-process without a persistent pg_stat_statements catalog. Use CodeLens, CLI EXPLAIN, or .query-autopsy/traces.jsonl traces.',
+        };
     }
   }
 

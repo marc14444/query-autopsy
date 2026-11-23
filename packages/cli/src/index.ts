@@ -127,7 +127,7 @@ function buildSarifEnvelope(
         tool: {
           driver: {
             name: 'QueryAutopsy',
-            version: '1.8.2',
+            version: '1.8.3',
             informationUri: 'https://github.com/marc14444/query-autopsy',
             rules: Array.from(rulesMap.values()),
           },
@@ -303,7 +303,7 @@ function getHelpText(): string {
     '',
     'Options:',
     '  --uri <dsn>               Database URI (fallback: QUERY_AUTOPSY_URI, DATABASE_URL)',
-    '  --engine <pg|mysql|sqlite> Explicit engine override',
+    '  --engine <pg|mysql|sqlite|duckdb> Explicit engine override',
     '  --mode <estimate|analyze> EXPLAIN mode (default: estimate)',
     '  --env <local|staging|production> Safety level (production enforces Read-Only lock)',
     '  --format <markdown|json|sarif> Output format (default: markdown, ci defaults to json)',
@@ -337,7 +337,12 @@ function normalizeEngineFlag(raw?: string): DatabaseEngine | undefined {
   if (lower === 'sqlite' || lower === 'sqlite3') {
     return 'sqlite';
   }
-  throw new Error(`Unsupported --engine value "${raw}". Expected postgresql, mysql, or sqlite.`);
+  if (lower === 'duckdb' || lower === 'duck') {
+    return 'duckdb';
+  }
+  throw new Error(
+    `Unsupported --engine value "${raw}". Expected postgresql, mysql, sqlite, or duckdb.`,
+  );
 }
 
 export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
@@ -347,7 +352,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   if (first === '-v' || first === '--version') {
-    io.stdout('1.8.2\n');
+    io.stdout('1.8.3\n');
     return 0;
   }
 
@@ -625,9 +630,15 @@ function createCliInspectContext(opts: {
   });
   const executor = opts.io.createExecutor
     ? opts.io.createExecutor(opts.logger)
-    : new MultiEngineQueryExecutor(opts.logger, {
-        wasmPath: resolveDefaultSqlJsWasmPath(),
-      });
+    : new MultiEngineQueryExecutor(
+        opts.logger,
+        {
+          wasmPath: resolveDefaultSqlJsWasmPath(),
+        },
+        {
+          workspaceRoot: process.cwd(),
+        },
+      );
 
   const inspectService = new InspectQueryService({
     connectionConfig: config,

@@ -6,6 +6,10 @@ import {
   type LoggerPort,
   type QueryExecutorPort,
 } from '@query-autopsy/core';
+import {
+  type DuckDbExecutorOptions,
+  DuckDbQueryExecutor,
+} from '../duckdb/duckdbQueryExecutor.js';
 import { MysqlQueryExecutor } from '../mysql/mysqlQueryExecutor.js';
 import { PgQueryExecutor } from '../postgres/pgQueryExecutor.js';
 import {
@@ -16,11 +20,16 @@ import {
 export class MultiEngineQueryExecutor implements QueryExecutorPort {
   private readonly executors: Record<DatabaseEngine, QueryExecutorPort>;
 
-  constructor(logger: LoggerPort, sqliteOptions?: SqliteExecutorOptions) {
+  constructor(
+    logger: LoggerPort,
+    sqliteOptions?: SqliteExecutorOptions,
+    duckdbOptions?: DuckDbExecutorOptions,
+  ) {
     this.executors = {
       postgresql: new PgQueryExecutor(logger),
       mysql: new MysqlQueryExecutor(logger),
       sqlite: new SqliteQueryExecutor(logger, sqliteOptions),
+      duckdb: new DuckDbQueryExecutor(logger, duckdbOptions),
     };
   }
 

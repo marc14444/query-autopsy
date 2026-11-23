@@ -390,7 +390,7 @@ export class McpFirewallServer {
             },
             engine: {
               type: 'string',
-              enum: ['postgresql', 'mysql', 'sqlite'],
+              enum: ['postgresql', 'mysql', 'sqlite', 'duckdb'],
               description: 'Target SQL dialect (defaults to server engine).',
             },
           },
@@ -599,8 +599,12 @@ export class McpFirewallServer {
     );
     const sql = readRequiredString(args, 'sql');
     const engine =
-      readOptionalEnum(args, 'engine', ['postgresql', 'mysql', 'sqlite'] as const) ??
-      this.engine;
+      readOptionalEnum(args, 'engine', [
+        'postgresql',
+        'mysql',
+        'sqlite',
+        'duckdb',
+      ] as const) ?? this.engine;
 
     const classified = classifySqlStatement(sql, engine);
     assertSafeSqlConstructs(classified.normalizedSql, engine);

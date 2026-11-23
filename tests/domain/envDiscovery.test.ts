@@ -180,4 +180,20 @@ services:
       engine: 'mysql',
     });
   });
+
+  it('discovers DuckDB URIs from .env files and formats display labels cleanly', () => {
+    const envText = `
+      DUCKDB_PATH=duckdb:///workspace/analytics/warehouse.duckdb
+      ANALYTICS_URL=file:./data/lake.ddb
+    `;
+    const candidates = extractDatabaseUrisFromEnvContent(envText, '.env');
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      label: 'DUCKDB_PATH (warehouse.duckdb)',
+      sourceFile: '.env',
+      uri: 'duckdb:///workspace/analytics/warehouse.duckdb',
+      displayTarget: 'warehouse.duckdb',
+      engine: 'duckdb',
+    });
+  });
 });

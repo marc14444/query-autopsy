@@ -152,6 +152,8 @@ function formatReportEngineLabel(report: InspectionReport): string {
       return 'MySQL';
     case 'sqlite':
       return 'SQLite';
+    case 'duckdb':
+      return 'DuckDB';
     default:
       return 'PostgreSQL';
   }

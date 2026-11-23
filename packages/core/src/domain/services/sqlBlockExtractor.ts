@@ -175,7 +175,7 @@ function offsetToPosition(
 }
 
 function isInspectableSql(candidateSql: string): boolean {
-  for (const engine of ['postgresql', 'mysql', 'sqlite'] as const) {
+  for (const engine of ['postgresql', 'mysql', 'sqlite', 'duckdb'] as const) {
     try {
       const classified = classifySqlStatement(candidateSql, engine);
       if (classified.kind === 'READ' || classified.kind === 'WRITE') {

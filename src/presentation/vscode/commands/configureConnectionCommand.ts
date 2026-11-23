@@ -43,6 +43,19 @@ export function validateConnectionUri(
     return 'Enter a .sqlite/.db file path, "sqlite:///path/to/app.db", or ":memory:".';
   }
 
+  if (engine === 'duckdb') {
+    if (
+      trimmed.toLowerCase() === ':memory:' ||
+      trimmed.toLowerCase() === ':memory:duckdb' ||
+      trimmed.toLowerCase().startsWith('duckdb:') ||
+      trimmed.toLowerCase().startsWith('file:') ||
+      /\.(?:duckdb|ddb)(?:$|\?)/i.test(trimmed)
+    ) {
+      return undefined;
+    }
+    return 'Enter a .duckdb/.ddb file path, "duckdb:///path/to/analytics.duckdb", or ":memory:duckdb".';
+  }
+
   const allowedPrefixes =
     engine === 'mysql'
       ? ['mysql://', 'mysql2://']
@@ -105,6 +118,11 @@ async function promptEngineChoice(): Promise<DatabaseEngine | undefined> {
         label: '$(file-binary) SQLite (.sqlite / .db)',
         description: 'EXPLAIN QUERY PLAN in local WASM (zero disk mutation)',
         engine: 'sqlite' as const,
+      },
+      {
+        label: '$(file-binary) DuckDB (.duckdb / Parquet / CSV)',
+        description: 'Columnar & Parquet EXPLAIN via local DuckDB (-readonly)',
+        engine: 'duckdb' as const,
       },
     ],
     {
@@ -266,22 +284,34 @@ async function promptGuidedNetworkDbUri(
   return `${scheme}://${auth}${host.trim()}:${port.trim()}${dbPath}${sslChoice.queryParam}`;
 }
 
-async function promptSqliteConnectionUri(): Promise<string | undefined> {
+async function promptLocalFileConnectionUri(
+  engine: 'sqlite' | 'duckdb',
+): Promise<string | undefined> {
+  const isDuckDb = engine === 'duckdb';
+  const label = isDuckDb ? 'DuckDB' : 'SQLite';
+  const memToken = isDuckDb ? ':memory:duckdb' : ':memory:';
+
   const method = await vscode.window.showQuickPick(
     [
       {
-        label: '$(folder-opened) Browse local .sqlite / .db file...',
-        description: 'Reads an isolated in-memory WASM copy for safe EXPLAIN',
+        label: isDuckDb
+          ? '$(folder-opened) Browse local .duckdb / .ddb file...'
+          : '$(folder-opened) Browse local .sqlite / .db file...',
+        description: isDuckDb
+          ? 'Inspects plans safely in DuckDB -readonly mode'
+          : 'Reads an isolated in-memory WASM copy for safe EXPLAIN',
         mode: 'browse' as const,
       },
       {
-        label: '$(edit) Enter SQLite path or ":memory:"',
-        description: 'e.g. /path/to/app.db or sqlite:///path/to/app.db',
+        label: `$(edit) Enter ${label} path or "${memToken}"`,
+        description: isDuckDb
+          ? 'e.g. /path/to/warehouse.duckdb or ":memory:duckdb" for read_parquet()'
+          : 'e.g. /path/to/app.db or sqlite:///path/to/app.db',
         mode: 'manual' as const,
       },
     ],
     {
-      title: 'QueryAutopsy SQLite: Choose Database File',
+      title: `QueryAutopsy ${label}: Choose Database File`,
       ignoreFocusOut: true,
     },
   );
@@ -294,43 +324,50 @@ async function promptSqliteConnectionUri(): Promise<string | undefined> {
     const pickedFiles = await vscode.window.showOpenDialog({
       canSelectMany: false,
       ...(defaultUri ? { defaultUri } : {}),
-      openLabel: 'Select SQLite Database',
+      openLabel: `Select ${label} Database`,
       filters: {
-        'SQLite Databases': ['sqlite', 'sqlite3', 'db'],
+        ...(isDuckDb
+          ? { 'DuckDB Databases': ['duckdb', 'ddb'] }
+          : { 'SQLite Databases': ['sqlite', 'sqlite3', 'db'] }),
         'All Files': ['*'],
       },
     });
     const selected = pickedFiles?.[0];
-    return selected ? `sqlite://${selected.fsPath}` : undefined;
+    return selected ? `${engine}://${selected.fsPath}` : undefined;
   }
 
   const rawPath = await vscode.window.showInputBox({
-    title: 'QueryAutopsy SQLite: File Path',
-    prompt: 'Enter path to .db/.sqlite file or :memory:',
-    placeHolder: '/path/to/prisma/dev.db',
+    title: `QueryAutopsy ${label}: File Path`,
+    prompt: `Enter path to database file or ${memToken}`,
+    placeHolder: isDuckDb
+      ? '/path/to/analytics.duckdb or :memory:duckdb'
+      : '/path/to/prisma/dev.db',
     ignoreFocusOut: true,
-    validateInput: (val) => validateConnectionUri(val, 'sqlite'),
+    validateInput: (val) => validateConnectionUri(val, engine),
   });
   if (!rawPath) {
     return undefined;
   }
   const trimmed = rawPath.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === ':memory:' || lower === ':memory:duckdb') {
+    return isDuckDb ? ':memory:duckdb' : ':memory:';
+  }
   if (
-    trimmed.toLowerCase() === ':memory:' ||
-    trimmed.toLowerCase().startsWith('sqlite:') ||
-    trimmed.toLowerCase().startsWith('file:')
+    lower.startsWith(`${engine}:`) ||
+    lower.startsWith('file:')
   ) {
     return trimmed;
   }
-  return `sqlite://${trimmed}`;
+  return `${engine}://${trimmed}`;
 }
 
 async function promptConnectionUriForEngine(
   engine: DatabaseEngine,
   title: string,
 ): Promise<string | undefined> {
-  if (engine === 'sqlite') {
-    return promptSqliteConnectionUri();
+  if (engine === 'sqlite' || engine === 'duckdb') {
+    return promptLocalFileConnectionUri(engine);
   }
 
   const engineLabel = formatEngineLabel(engine);

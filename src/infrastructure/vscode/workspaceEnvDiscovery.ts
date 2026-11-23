@@ -12,36 +12,47 @@ const ENV_GLOB = '**/{.env,.env.local,.env.development,.env.dev}';
 const COMPOSE_GLOB =
   '**/{docker-compose.yml,docker-compose.yaml,compose.yml,compose.yaml}';
 const SQLITE_GLOB = '**/*.{sqlite,sqlite3,db}';
+const DUCKDB_GLOB = '**/*.{duckdb,ddb}';
 const EXCLUDE_GLOB = '**/{node_modules,.git,dist}/**';
 
-function absolutizeEnvSqliteCandidate(
+function absolutizeEnvLocalDbCandidate(
   candidate: DiscoveredConnectionCandidate,
   envFileFsPath: string,
 ): DiscoveredConnectionCandidate {
-  if (candidate.engine !== 'sqlite') {
+  if (candidate.engine !== 'sqlite' && candidate.engine !== 'duckdb') {
     return candidate;
   }
 
   let rawPath = candidate.uri;
-  if (/^file:/i.test(rawPath)) {
-    rawPath = rawPath.slice('file:'.length);
-  } else if (/^sqlite:\/\//i.test(rawPath)) {
-    rawPath = rawPath.slice('sqlite://'.length);
-  } else if (/^sqlite:/i.test(rawPath)) {
-    rawPath = rawPath.slice('sqlite:'.length);
+  for (const prefix of [
+    /^file:/i,
+    /^sqlite:\/\//i,
+    /^sqlite:/i,
+    /^duckdb:\/\//i,
+    /^duckdb:/i,
+  ]) {
+    if (prefix.test(rawPath)) {
+      rawPath = rawPath.replace(prefix, '');
+      break;
+    }
   }
 
   rawPath = (rawPath.split('?')[0] ?? rawPath).trim();
-  if (!rawPath || rawPath === ':memory:' || path.isAbsolute(rawPath)) {
+  if (
+    !rawPath ||
+    rawPath === ':memory:' ||
+    rawPath === ':memory:duckdb' ||
+    path.isAbsolute(rawPath)
+  ) {
     return candidate;
   }
 
   const resolvedPath = path.resolve(path.dirname(envFileFsPath), rawPath);
-  const absUri = `sqlite://${resolvedPath}`;
+  const absUri = `${candidate.engine}://${resolvedPath}`;
   return {
     ...candidate,
     uri: absUri,
-    displayTarget: sanitizeConnectionDisplayTarget(absUri, 'sqlite'),
+    displayTarget: sanitizeConnectionDisplayTarget(absUri, candidate.engine),
   };
 }
 
@@ -52,10 +63,11 @@ export async function discoverWorkspaceDatabaseConnections(): Promise<
     return [];
   }
 
-  const [envFiles, composeFiles, sqliteFiles] = await Promise.all([
+  const [envFiles, composeFiles, sqliteFiles, duckdbFiles] = await Promise.all([
     vscode.workspace.findFiles(ENV_GLOB, EXCLUDE_GLOB, 8),
     vscode.workspace.findFiles(COMPOSE_GLOB, EXCLUDE_GLOB, 6),
     vscode.workspace.findFiles(SQLITE_GLOB, EXCLUDE_GLOB, 8),
+    vscode.workspace.findFiles(DUCKDB_GLOB, EXCLUDE_GLOB, 8),
   ]);
 
   const decoder = new TextDecoder('utf-8');
@@ -81,7 +93,7 @@ export async function discoverWorkspaceDatabaseConnections(): Promise<
       }
       const relPath = vscode.workspace.asRelativePath(uri, false);
       const envCandidates = extractDatabaseUrisFromEnvContent(text, relPath).map(
-        (c) => absolutizeEnvSqliteCandidate(c, uri.fsPath),
+        (c) => absolutizeEnvLocalDbCandidate(c, uri.fsPath),
       );
       pushUnique(envCandidates);
     } catch {
@@ -115,6 +127,20 @@ export async function discoverWorkspaceDatabaseConnections(): Promise<
         uri: sqliteUri,
         displayTarget: sanitizeConnectionDisplayTarget(sqliteUri, 'sqlite'),
         engine: 'sqlite',
+      },
+    ]);
+  }
+
+  for (const uri of duckdbFiles) {
+    const relPath = vscode.workspace.asRelativePath(uri, false);
+    const duckdbUri = `duckdb://${uri.fsPath}`;
+    pushUnique([
+      {
+        label: `DuckDB (${relPath})`,
+        sourceFile: relPath,
+        uri: duckdbUri,
+        displayTarget: sanitizeConnectionDisplayTarget(duckdbUri, 'duckdb'),
+        engine: 'duckdb',
       },
     ]);
   }

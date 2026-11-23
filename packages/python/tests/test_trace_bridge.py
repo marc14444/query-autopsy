@@ -88,6 +88,7 @@ class TraceBridgeTests(unittest.TestCase):
         self.assertEqual(normalize_engine("postgres"), "postgresql")
         self.assertEqual(normalize_engine("mysql+pymysql"), "mysql")
         self.assertEqual(normalize_engine("sqlite+pysqlite"), "sqlite")
+        self.assertEqual(normalize_engine("duckdb"), "duckdb")
         self.assertIsNone(normalize_engine("oracle"))
 
     def test_writer_scrubs_pii_creates_gitignore_and_scopes_requests(self) -> None:

@@ -38,6 +38,8 @@ def normalize_engine(raw: Optional[str]) -> Optional[str]:
         return "mysql"
     if base in {"sqlite", "sqlite3", "aiosqlite"}:
         return "sqlite"
+    if base in {"duckdb", "duck"}:
+        return "duckdb"
     return None
 
 
